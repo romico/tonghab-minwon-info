@@ -1,0 +1,224 @@
+#!/usr/bin/env node
+/**
+ * Windows 포터블 배포 패키지 생성
+ * - Node.js win-x64 런타임 내장 → PC에 Node 설치 불필요
+ * - 시작.bat 더블클릭으로 실행
+ */
+import { spawnSync } from "node:child_process";
+import {
+  cpSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { pipeline } from "node:stream/promises";
+import * as esbuild from "esbuild";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const outDir = join(root, "release-win");
+const cacheDir = join(root, ".cache");
+
+/** Node 22 LTS win-x64 (포터블) */
+const NODE_VERSION = process.env.TM_NODE_VERSION ?? "22.18.0";
+const NODE_ZIP = `node-v${NODE_VERSION}-win-x64.zip`;
+const NODE_URL = `https://nodejs.org/dist/v${NODE_VERSION}/${NODE_ZIP}`;
+
+function run(cmd, args) {
+  const r = spawnSync(cmd, args, {
+    cwd: root,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r.status !== 0) process.exit(r.status ?? 1);
+}
+
+async function download(url, dest) {
+  if (existsSync(dest)) {
+    console.log(`  캐시 사용: ${dest}`);
+    return;
+  }
+  mkdirSync(dirname(dest), { recursive: true });
+  console.log(`  다운로드: ${url}`);
+  const res = await fetch(url);
+  if (!res.ok || !res.body) {
+    throw new Error(`다운로드 실패: ${res.status} ${url}`);
+  }
+  await pipeline(res.body, createWriteStream(dest));
+}
+
+function unzip(zipPath, destDir) {
+  mkdirSync(destDir, { recursive: true });
+  const r = spawnSync("unzip", ["-q", "-o", zipPath, "-d", destDir], {
+    stdio: "inherit",
+  });
+  if (r.status !== 0) {
+    // Windows / unzip 없을 때 ditto (mac) 시도
+    const d = spawnSync("ditto", ["-x", "-k", zipPath, destDir], {
+      stdio: "inherit",
+    });
+    if (d.status !== 0) {
+      throw new Error("ZIP 해제 실패 (unzip 또는 ditto 필요)");
+    }
+  }
+}
+
+function findExtractedNodeDir(extractRoot) {
+  const entries = readdirSync(extractRoot, { withFileTypes: true });
+  const dir = entries.find(
+    (e) => e.isDirectory() && e.name.startsWith("node-v") && e.name.includes("win"),
+  );
+  if (!dir) throw new Error(`Node 폴더를 찾지 못함: ${extractRoot}`);
+  return join(extractRoot, dir.name);
+}
+
+console.log("1/5 프론트엔드 빌드…");
+run("npm", ["run", "build"]);
+
+console.log("2/5 release-win 폴더 준비…");
+rmSync(outDir, { recursive: true, force: true });
+mkdirSync(join(outDir, "data"), { recursive: true });
+mkdirSync(join(outDir, "runtime"), { recursive: true });
+writeFileSync(
+  join(outDir, "data", "README.txt"),
+  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n",
+  "utf8",
+);
+
+console.log("3/5 Windows Node 런타임 준비…");
+const zipPath = join(cacheDir, NODE_ZIP);
+const extractTmp = join(cacheDir, `extract-${NODE_VERSION}`);
+await download(NODE_URL, zipPath);
+rmSync(extractTmp, { recursive: true, force: true });
+unzip(zipPath, extractTmp);
+const nodeHome = findExtractedNodeDir(extractTmp);
+cpSync(join(nodeHome, "node.exe"), join(outDir, "runtime", "node.exe"));
+writeFileSync(
+  join(outDir, "runtime", "VERSION.txt"),
+  `Node.js ${NODE_VERSION} win-x64 (nodejs.org 공식 바이너리)\n`,
+  "utf8",
+);
+
+console.log("4/5 서버 번들…");
+await esbuild.build({
+  absWorkingDir: root,
+  entryPoints: [join(root, "server", "index.ts")],
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node22",
+  outfile: join(outDir, "server.cjs"),
+  packages: "bundle",
+  external: ["node:sqlite"],
+  logLevel: "info",
+});
+
+console.log("5/5 앱 파일·실행 스크립트…");
+cpSync(join(root, "dist"), join(outDir, "dist"), { recursive: true });
+
+// ASCII-only + Windows ANSI (latin1) — avoid Hangul / UTF-8 mojibake on some PCs
+const batBody = [
+  "@echo off",
+  "cd /d \"%~dp0\"",
+  "",
+  "set \"NODE_EXE=%~dp0runtime\\node.exe\"",
+  "if not exist \"%NODE_EXE%\" (",
+  "  echo.",
+  "  echo [ERROR] runtime\\node.exe not found.",
+  "  echo         Re-extract the portable ZIP and try again.",
+  "  echo.",
+  "  pause",
+  "  exit /b 1",
+  ")",
+  "",
+  "set NODE_ENV=production",
+  "set PORT=8787",
+  "set HOST=127.0.0.1",
+  "",
+  "echo.",
+  "echo ========================================",
+  "echo  Tonghab Minwon Info (portable)",
+  "echo  http://127.0.0.1:8787",
+  "echo  login: admin / admin",
+  "echo  stop:  Ctrl+C in this window",
+  "echo ========================================",
+  "echo.",
+  "",
+  "start \"\" \"http://127.0.0.1:8787\"",
+  "\"%NODE_EXE%\" --experimental-sqlite server.cjs",
+  "set EXITCODE=%ERRORLEVEL%",
+  "if not %EXITCODE%==0 (",
+  "  echo.",
+  "  echo Server exited with error code %EXITCODE%.",
+  "  pause",
+  ")",
+  "exit /b %EXITCODE%",
+  "",
+].join("\r\n");
+
+writeFileSync(join(outDir, "my-minwon-server.bat"), batBody, "latin1");
+
+writeFileSync(
+  join(outDir, "사용방법.txt"),
+  `통합민원정보 — Windows 포터블 실행 안내
+========================================
+
+■ 특징
+  - Node.js 설치 불필요 (runtime\\node.exe 내장)
+  - USB·공유폴더에 복사해 그대로 실행 가능
+  - 64비트 Windows 전용
+
+■ 실행 방법
+  1. ZIP을 원하는 위치에 압축 해제합니다.
+  2. "my-minwon-server.bat" 을 더블클릭합니다.
+  3. 브라우저에서 admin / admin 으로 로그인합니다.
+  4. 종료: 콘솔 창에서 Ctrl+C
+
+■ 데이터
+  - data\\tonghab-minwon.db 에 저장됩니다.
+  - 폴더 전체를 복사하면 데이터도 함께 이동합니다.
+
+■ 포트 변경
+  - my-minwon-server.bat 의 set PORT=8787 값을 수정하세요.
+
+■ 문제 해결
+  - SmartScreen 경고: "추가 정보" → "실행"
+  - 포트 충돌: PORT 변경 또는 다른 프로그램 종료
+  - 브라우저 미실행: http://127.0.0.1:8787 직접 접속
+`,
+  "utf8",
+);
+
+writeFileSync(
+  join(outDir, "package.json"),
+  `${JSON.stringify(
+    {
+      name: "tonghab-minwon-info-portable",
+      private: true,
+      version: "0.1.0",
+      type: "module",
+      description: "Windows portable — run my-minwon-server.bat",
+    },
+    null,
+    2,
+  )}\n`,
+  "utf8",
+);
+
+const zipOut = join(root, "tonghab-minwon-info-windows-portable.zip");
+if (existsSync(zipOut)) rmSync(zipOut);
+const zip = spawnSync("zip", ["-r", "-q", zipOut, "release-win"], {
+  cwd: root,
+  stdio: "inherit",
+});
+if (zip.status === 0) {
+  console.log(`\n완료(포터블): ${outDir}`);
+  console.log(`ZIP: ${zipOut}`);
+} else {
+  console.log(`\n완료(포터블): ${outDir}`);
+  console.log("zip 명령 없음 — release-win 폴더를 직접 압축해 배포하세요.");
+}

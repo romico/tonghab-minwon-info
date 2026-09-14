@@ -1,0 +1,21 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+docs/~$*
+docs/*.hwpx
+docs/*.xlsx
+
+# SQLite
+data/*.db
+data/*.db-*
+
+# Windows portable release
+release-win/
+.cache/
+tonghab-minwon-info-windows*.zip
