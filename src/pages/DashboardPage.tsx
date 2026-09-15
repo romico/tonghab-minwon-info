@@ -579,7 +579,7 @@ export function DashboardPage() {
             disabled={exporting || storeLoading}
             onClick={() => void onExportExcel()}
           >
-            {exporting ? "내보내는 중…" : "엑셀 다운로드"}
+            {exporting ? "내보내는 중…" : "통합 엑셀 다운로드"}
           </button>
           <button
             type="button"
