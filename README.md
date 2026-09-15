@@ -6,7 +6,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | 0.1.3 |
+| 버전 | 0.1.4 |
 | 기본 계정 | `admin` / `admin` |
 | 개발 UI | http://localhost:5173 |
 | API / 프로덕션 | http://127.0.0.1:8787 |
@@ -99,11 +99,11 @@ Node 22 win-x64 런타임이 패키지에 포함됩니다.
 |---|---|
 | `master` push / PR | 포터블 ZIP 빌드 → Artifact 업로드 |
 | `workflow_dispatch` | 수동 빌드 |
-| tag `v*` (예: `v0.1.3`) | Artifact + **GitHub Release** 게시 |
+| tag `v*` (예: `v0.1.4`) | Artifact + **GitHub Release** 게시 |
 
 ```bash
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 ---
