@@ -127,9 +127,9 @@ tonghab-minwon-info/
 ---
 
 ## 문서
-
 | 문서 | 설명 |
 |---|---|
+| [docs/ONBOARDING.md](./docs/ONBOARDING.md) | 새 기여자용 개발 환경·구조·변경·검증 안내 |
 | [docs/PRD.md](./docs/PRD.md) | 제품요구사항 (구현 기준) |
 | [docs/architecture.md](./docs/architecture.md) | 아키텍처 |
 | [docs/erd.md](./docs/erd.md) | ERD |
