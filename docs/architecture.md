@@ -44,7 +44,7 @@
 2. Node 22 win-x64 `node.exe` 내장 (`runtime/`)
 3. esbuild로 `server/index.ts` → `server.cjs` (`node:sqlite` external)
 4. `my-minwon-server.bat` (HOST=`127.0.0.1`, PORT=`8787`, production)
-5. ZIP: `tonghab-minwon-info-windows-portable.zip` → GitHub Release
+5. ZIP: `tonghab-minwon-info-windows-portable-v{version}.zip` → GitHub Release
 
 프로덕션에서는 Express가 `dist/` 정적 파일 + SPA fallback을 함께 서빙합니다.
 

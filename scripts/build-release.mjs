@@ -10,6 +10,7 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -22,6 +23,8 @@ import * as esbuild from "esbuild";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = join(root, "release-win");
 const cacheDir = join(root, ".cache");
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const APP_VERSION = String(pkg.version ?? "0.0.0");
 
 /** Node 22 LTS win-x64 (포터블) */
 const NODE_VERSION = process.env.TM_NODE_VERSION ?? "22.18.0";
@@ -199,7 +202,7 @@ writeFileSync(
     {
       name: "tonghab-minwon-info-portable",
       private: true,
-      version: "0.1.0",
+      version: APP_VERSION,
       type: "module",
       description: "Windows portable — run my-minwon-server.bat",
     },
@@ -209,7 +212,8 @@ writeFileSync(
   "utf8",
 );
 
-const zipOut = join(root, "tonghab-minwon-info-windows-portable.zip");
+const zipName = `tonghab-minwon-info-windows-portable-v${APP_VERSION}.zip`;
+const zipOut = join(root, zipName);
 if (existsSync(zipOut)) rmSync(zipOut);
 const zip = spawnSync("zip", ["-r", "-q", zipOut, "release-win"], {
   cwd: root,
@@ -218,6 +222,9 @@ const zip = spawnSync("zip", ["-r", "-q", zipOut, "release-win"], {
 if (zip.status === 0) {
   console.log(`\n완료(포터블): ${outDir}`);
   console.log(`ZIP: ${zipOut}`);
+} else if (process.env.CI) {
+  console.error("zip 명령 실패 — CI에서는 ZIP 생성이 필수입니다.");
+  process.exit(zip.status ?? 1);
 } else {
   console.log(`\n완료(포터블): ${outDir}`);
   console.log("zip 명령 없음 — release-win 폴더를 직접 압축해 배포하세요.");

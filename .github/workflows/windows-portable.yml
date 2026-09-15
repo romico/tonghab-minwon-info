@@ -1,0 +1,77 @@
+# Windows 포터블 ZIP 빌드
+# - Ubuntu에서 win-x64 Node 런타임을 번들 (PC에 Node 설치 불필요)
+# - tag(v*) push 시 GitHub Release 자동 게시
+name: Windows Portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: windows-portable-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build portable ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.18.0"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache bundled Node win-x64
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: node-win-x64-${{ hashFiles('scripts/build-release.mjs') }}-22.18.0
+          restore-keys: |
+            node-win-x64-
+
+      - name: Build Windows portable
+        run: npm run release:win
+        env:
+          CI: "true"
+
+      - name: Read package version
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "zip=tonghab-minwon-info-windows-portable-v${VERSION}.zip" >> "$GITHUB_OUTPUT"
+          ls -lh tonghab-minwon-info-windows-portable*.zip release-win/runtime/node.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}
+          path: tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -407,7 +407,7 @@
 | 단계 | 명령/산출 |
 |---|---|
 | 빌드 | `npm run build` |
-| 포터블 | `npm run release:win` → `release-win/` + `tonghab-minwon-info-windows-portable.zip` |
+| 포터블 | `npm run release:win` → `release-win/` + `tonghab-minwon-info-windows-portable-v{version}.zip` |
 | GitHub Release | 예: `v0.1.2` 에 ZIP 첨부 |
 | 사용자 절차 | ZIP 해제 → bat 실행 → admin/admin → 업무 |
 
