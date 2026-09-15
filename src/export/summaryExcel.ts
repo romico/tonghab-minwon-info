@@ -139,11 +139,10 @@ function writeDimBlock(
  * 원본 「생활민원 처리 현황」 총괄표 양식.
  * 시트명: (총괄표)
  */
-export async function exportSummaryExcel(report: SummaryReport): Promise<void> {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "통합민원정보";
-  wb.created = new Date();
-
+export function addSummarySheet(
+  wb: ExcelJS.Workbook,
+  report: SummaryReport,
+): void {
   const ws = wb.addWorksheet("(총괄표)");
   for (let i = 1; i <= 24; i++) {
     ws.getColumn(i).width = i % 2 === 1 ? 8 : 9;
@@ -234,6 +233,13 @@ export async function exportSummaryExcel(report: SummaryReport): Promise<void> {
     const sectionTitle = i === 0 ? "실국별 현황" : "실국별 현황 (계속)";
     nextRow = writeDimBlock(ws, nextRow, sectionTitle, slice);
   }
+}
+
+export async function exportSummaryExcel(report: SummaryReport): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "통합민원정보";
+  wb.created = new Date();
+  addSummarySheet(wb, report);
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {

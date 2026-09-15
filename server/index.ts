@@ -13,6 +13,7 @@ import {
   refreshSession,
   revokeOtherSessions,
   updateSettings,
+  verifyUserPassword,
   type SessionInfo,
 } from "./auth.ts";
 import {
@@ -411,13 +412,19 @@ app.post("/api/complaints/replace", requireAuth, (req, res) => {
 });
 
 app.post("/api/complaints/reset-seed", requireAuth, (req, res) => {
+  const password =
+    typeof req.body?.password === "string" ? req.body.password : "";
+  if (!verifyUserPassword(req.session!.user.id, password)) {
+    res.status(401).json({ error: "비밀번호가 올바르지 않습니다." });
+    return;
+  }
   const items = resetSeed();
   auditFromReq(req, {
     userId: req.session!.user.id,
     username: req.session!.user.username,
     action: "COMPLAINT_RESET_SEED",
     resourceType: "complaint",
-    summary: `샘플 데이터 복원 ${items.length}건`,
+    summary: `DB 초기화(샘플 복원) ${items.length}건`,
   });
   res.json({ complaints: items, count: items.length });
 });

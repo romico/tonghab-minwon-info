@@ -73,16 +73,14 @@ function applyBodyStyle(cell: ExcelJS.Cell, opts?: { wrap?: boolean; center?: bo
   cell.border = { top: THIN, left: THIN, bottom: THIN, right: THIN };
 }
 
-export async function exportLedgerExcel(
+export async function addLedgerSheet(
+  wb: ExcelJS.Workbook,
   complaints: Complaint[],
   options: LedgerExportOptions = {},
 ): Promise<void> {
   const { maskPersonalInfo = false, includeImages = true } = options;
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "통합민원정보";
-  wb.created = new Date();
 
-  const ws = wb.addWorksheet("관리대장", {
+  const ws = wb.addWorksheet("(관리대장)", {
     views: [{ state: "frozen", ySplit: 4 }],
     properties: { defaultRowHeight: 18 },
   });
@@ -233,6 +231,16 @@ export async function exportLedgerExcel(
       row.getCell(17).value = after ? "있음" : "";
     }
   });
+}
+
+export async function exportLedgerExcel(
+  complaints: Complaint[],
+  options: LedgerExportOptions = {},
+): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "통합민원정보";
+  wb.created = new Date();
+  await addLedgerSheet(wb, complaints, options);
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {

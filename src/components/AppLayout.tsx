@@ -5,6 +5,7 @@ import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
 
 const LINKS = [
+  { to: "/", step: "홈", label: "대시보드", end: true },
   { to: "/ledger", step: "1", label: "관리대장" },
   { to: "/departments", step: "2", label: "부서별현황" },
   { to: "/summary", step: "3", label: "총괄표" },
@@ -114,10 +115,13 @@ export function AppLayout() {
             <NavLink
               key={link.to}
               to={link.to}
+              end={"end" in link ? link.end : undefined}
               className={({ isActive }) => (isActive ? "active" : undefined)}
             >
-              <span className="nav-step">{link.step}</span>
-              {link.label}
+              <span className="nav-step" aria-hidden>
+                {link.step}
+              </span>
+              <span className="nav-label">{link.label}</span>
             </NavLink>
           ))}
         </nav>

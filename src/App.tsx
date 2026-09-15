@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { AuditPage } from "@/pages/AuditPage";
 import { DailyPage } from "@/pages/DailyPage";
+import { DashboardPage } from "@/pages/DashboardPage";
 import { DepartmentPage } from "@/pages/DepartmentPage";
 import { LedgerPage } from "@/pages/LedgerPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -33,9 +34,9 @@ function ProtectedApp() {
   return (
     <ComplaintProvider>
       <Routes>
-        <Route path="/login" element={<Navigate to="/ledger" replace />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/ledger" replace />} />
+          <Route index element={<DashboardPage />} />
           <Route path="ledger" element={<LedgerPage />} />
           <Route path="departments" element={<DepartmentPage />} />
           <Route path="summary" element={<SummaryPage />} />
@@ -43,7 +44,7 @@ function ProtectedApp() {
           <Route path="audit" element={<AuditPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/ledger" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ComplaintProvider>
   );

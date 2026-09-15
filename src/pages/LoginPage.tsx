@@ -10,7 +10,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!authLoading && user) {
-    return <Navigate to="/ledger" replace />;
+    return <Navigate to="/" replace />;
   }
 
   async function onSubmit(e: FormEvent) {

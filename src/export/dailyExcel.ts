@@ -78,11 +78,7 @@ function metricValues(m: DailyCellMetrics): number[] {
  * 원본 「일일보고」 양식.
  * 시트명: (일일보고)
  */
-export async function exportDailyExcel(report: DailyReport): Promise<void> {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "통합민원정보";
-  wb.created = new Date();
-
+export function addDailySheet(wb: ExcelJS.Workbook, report: DailyReport): void {
   const ws = wb.addWorksheet("(일일보고)");
   // A=구분, B~V = 7그룹×3메트릭
   ws.getColumn(1).width = 12;
@@ -233,11 +229,18 @@ export async function exportDailyExcel(report: DailyReport): Promise<void> {
   ws.getColumn(2).width = 10;
   ws.getColumn(3).width = 14;
   ws.getColumn(4).width = 10;
+}
+
+export async function exportDailyExcel(report: DailyReport): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "통합민원정보";
+  wb.created = new Date();
+  addDailySheet(wb, report);
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
-  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, ""); 
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   saveAs(blob, `생활민원_일일보고_${stamp}.xlsx`);
 }

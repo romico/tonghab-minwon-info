@@ -35,10 +35,10 @@ export async function apiDeleteComplaint(id: string): Promise<void> {
   });
 }
 
-export async function apiResetSeed(): Promise<Complaint[]> {
+export async function apiResetSeed(password: string): Promise<Complaint[]> {
   const data = await apiRequest<{ complaints: Complaint[] }>(
     "/api/complaints/reset-seed",
-    { method: "POST", body: "{}" },
+    { method: "POST", body: JSON.stringify({ password }) },
   );
   return data.complaints;
 }

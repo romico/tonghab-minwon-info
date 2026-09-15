@@ -36,5 +36,5 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   COMPLAINT_DELETE: "민원 삭제",
   COMPLAINT_BATCH_CREATE: "민원 일괄등록",
   COMPLAINT_REPLACE: "민원 전체교체",
-  COMPLAINT_RESET_SEED: "샘플 복원",
+  COMPLAINT_RESET_SEED: "DB 초기화",
 };

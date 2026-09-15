@@ -21,6 +21,53 @@ type LedgerLocationState = {
   returnTo?: string;
 };
 
+function normalizeSearchText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function complaintSearchHaystack(
+  c: Complaint,
+  deptName: Record<string, string>,
+): string {
+  const fieldLabel =
+    FIELD_OPTIONS.find((f) => f.code === c.fieldCode)?.label ?? "";
+  const statusLabel = c.processStatus
+    ? PROCESS_STATUS_LABEL[c.processStatus]
+    : "";
+  return [
+    c.id,
+    c.content,
+    c.location,
+    c.complainantName,
+    c.complainantPhone,
+    c.assigneeName,
+    c.receiptRouteCode,
+    c.remark,
+    c.pendingReason,
+    c.receivedAt,
+    c.notifiedAt,
+    c.completedOrDueAt,
+    deptName[c.departmentId],
+    fieldLabel,
+    statusLabel,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function matchesLedgerSearch(
+  c: Complaint,
+  query: string,
+  deptName: Record<string, string>,
+): boolean {
+  const normalized = normalizeSearchText(query);
+  if (!normalized) return true;
+  const tokens = normalized.split(" ").filter(Boolean);
+  const haystack = complaintSearchHaystack(c, deptName);
+  return tokens.every((token) => haystack.includes(token));
+}
+
 const emptyForm = (): ComplaintInput => ({
   receiptRouteCode: "시민불편(우아2동)",
   receivedAt: new Date().toISOString().slice(0, 10),
@@ -58,19 +105,110 @@ export function LedgerPage() {
     filteredComplaints,
     upsertComplaint,
     deleteComplaint,
-    resetSeed,
   } = useComplaintStore();
   const [editing, setEditing] = useState<ComplaintInput | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportMask, setExportMask] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Complaint | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState(
+    () => searchParams.get("q") ?? "",
+  );
+  const [searchQuery, setSearchQuery] = useState(
+    () => searchParams.get("q") ?? "",
+  );
+  const [fieldFilter, setFieldFilter] = useState<FieldCode | "ALL">("ALL");
+  const [statusFilter, setStatusFilter] = useState<ProcessStatus | "ALL">(
+    () => {
+      const s = searchParams.get("status");
+      if (s === "DONE" || s === "SCHEDULED" || s === "IMPOSSIBLE") return s;
+      return "ALL";
+    },
+  );
+  const [deptFilter, setDeptFilter] = useState(
+    () => searchParams.get("dept") || "ALL",
+  );
   const editPanelRef = useRef<HTMLDivElement>(null);
   const openedEditId = useRef<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const deptName = useMemo(
     () => Object.fromEntries(DEPARTMENTS.map((d) => [d.id, d.name])),
     [],
   );
+
+  const displayComplaints = useMemo(() => {
+    return filteredComplaints.filter((c) => {
+      if (fieldFilter !== "ALL" && c.fieldCode !== fieldFilter) return false;
+      if (statusFilter !== "ALL" && c.processStatus !== statusFilter) {
+        return false;
+      }
+      if (deptFilter !== "ALL" && c.departmentId !== deptFilter) return false;
+      return matchesLedgerSearch(c, searchQuery, deptName);
+    });
+  }, [
+    filteredComplaints,
+    fieldFilter,
+    statusFilter,
+    deptFilter,
+    searchQuery,
+    deptName,
+  ]);
+
+  const hasActiveSearch =
+    normalizeSearchText(searchQuery).length > 0 ||
+    fieldFilter !== "ALL" ||
+    statusFilter !== "ALL" ||
+    deptFilter !== "ALL";
+
+  useEffect(() => {
+    const s = searchParams.get("status");
+    if (s === "DONE" || s === "SCHEDULED" || s === "IMPOSSIBLE") {
+      setStatusFilter(s);
+    } else {
+      setStatusFilter("ALL");
+    }
+    setDeptFilter(searchParams.get("dept") || "ALL");
+    const q = searchParams.get("q") ?? "";
+    setSearchInput(q);
+    setSearchQuery(q);
+  }, [searchParams]);
+
+  function syncListParams(nextStatus: ProcessStatus | "ALL", nextDept: string) {
+    const next = new URLSearchParams(searchParams);
+    if (nextStatus === "ALL") next.delete("status");
+    else next.set("status", nextStatus);
+    if (nextDept === "ALL") next.delete("dept");
+    else next.set("dept", nextDept);
+    setSearchParams(next, { replace: true });
+  }
+
+  function applySearch(e?: FormEvent) {
+    e?.preventDefault();
+    const nextQuery = searchInput;
+    setSearchQuery(nextQuery);
+    const next = new URLSearchParams(searchParams);
+    const trimmed = nextQuery.trim();
+    if (trimmed) next.set("q", trimmed);
+    else next.delete("q");
+    setSearchParams(next, { replace: true });
+  }
+
+  function clearSearch() {
+    setSearchInput("");
+    setSearchQuery("");
+    setFieldFilter("ALL");
+    setStatusFilter("ALL");
+    setDeptFilter("ALL");
+    const next = new URLSearchParams(searchParams);
+    next.delete("q");
+    next.delete("status");
+    next.delete("dept");
+    setSearchParams(next, { replace: true });
+    searchInputRef.current?.focus();
+  }
 
   function closeEditAndReturn() {
     setEditing(null);
@@ -153,15 +291,47 @@ export function LedgerPage() {
     closeEditAndReturn();
   }
 
+  function requestDelete(c: Complaint) {
+    setDeleteErr(null);
+    setDeleteTarget(c);
+  }
+
+  function cancelDelete() {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteErr(null);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteErr(null);
+    try {
+      await deleteComplaint(deleteTarget.id);
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error(err);
+      setDeleteErr(
+        err instanceof Error ? err.message : "삭제에 실패했습니다.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function onExportExcel() {
-    if (filteredComplaints.length === 0) {
-      window.alert("내보낼 민원이 없습니다.");
+    if (displayComplaints.length === 0) {
+      window.alert(
+        hasActiveSearch
+          ? "검색 결과에 내보낼 민원이 없습니다."
+          : "내보낼 민원이 없습니다.",
+      );
       return;
     }
     setExporting(true);
     try {
       const { exportLedgerExcel } = await import("@/export/ledgerExcel");
-      await exportLedgerExcel(filteredComplaints, {
+      await exportLedgerExcel(displayComplaints, {
         maskPersonalInfo: exportMask,
         includeImages: true,
       });
@@ -194,24 +364,10 @@ export function LedgerPage() {
           <button
             type="button"
             className="btn"
-            disabled={exporting || filteredComplaints.length === 0}
+            disabled={exporting || displayComplaints.length === 0}
             onClick={() => void onExportExcel()}
           >
             {exporting ? "내보내는 중…" : "엑셀 다운로드"}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              void resetSeed().catch((err: unknown) => {
-                console.error(err);
-                window.alert(
-                  err instanceof Error ? err.message : "샘플 복원에 실패했습니다.",
-                );
-              });
-            }}
-          >
-            샘플 복원
           </button>
           <button type="button" className="btn btn-primary" onClick={startCreate}>
             민원 등록
@@ -475,11 +631,116 @@ export function LedgerPage() {
       <div className="panel">
         <div className="panel-head">
           <h2>생활민원 관리 대장</h2>
-          <span className="badge">{filteredComplaints.length}건</span>
+          <span className="badge">
+            {hasActiveSearch
+              ? `검색 ${displayComplaints.length}건 / 전체 ${filteredComplaints.length}건`
+              : `${filteredComplaints.length}건`}
+          </span>
         </div>
+
+        <form className="ledger-search" onSubmit={applySearch}>
+          <div className="ledger-search-main">
+            <label className="sr-only" htmlFor="ledger-search-q">
+              원장 검색어
+            </label>
+            <input
+              ref={searchInputRef}
+              id="ledger-search-q"
+              type="search"
+              className="ledger-search-input"
+              placeholder="민원내용, 위치, 민원인, 담당자, 부서, 접수경로…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              autoComplete="off"
+            />
+            <button type="submit" className="btn btn-primary">
+              검색
+            </button>
+            {hasActiveSearch && (
+              <button
+                type="button"
+                className="btn"
+                onClick={clearSearch}
+              >
+                초기화
+              </button>
+            )}
+          </div>
+          <div className="ledger-search-filters">
+            <label className="field ledger-search-field">
+              분야
+              <select
+                value={fieldFilter}
+                onChange={(e) =>
+                  setFieldFilter(e.target.value as FieldCode | "ALL")
+                }
+              >
+                <option value="ALL">전체</option>
+                {FIELD_OPTIONS.map((f) => (
+                  <option key={f.code} value={f.code}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field ledger-search-field">
+              처리구분
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  const next = e.target.value as ProcessStatus | "ALL";
+                  setStatusFilter(next);
+                  syncListParams(next, deptFilter);
+                }}
+              >
+                <option value="ALL">전체</option>
+                {PROCESS_STATUS_OPTIONS.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field ledger-search-field">
+              처리부서
+              <select
+                value={deptFilter}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setDeptFilter(next);
+                  syncListParams(statusFilter, next);
+                }}
+              >
+                <option value="ALL">전체</option>
+                {DEPARTMENTS.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="ledger-search-hint">
+              여러 단어는 모두 포함된 건만 표시합니다. 상단 기간 필터와 함께
+              적용됩니다.
+            </p>
+          </div>
+        </form>
+
         <div className="panel-body">
           {filteredComplaints.length === 0 ? (
             <div className="empty">등록된 민원이 없습니다.</div>
+          ) : displayComplaints.length === 0 ? (
+            <div className="empty">
+              검색 조건에 맞는 민원이 없습니다.
+              <button
+                type="button"
+                className="btn"
+                style={{ marginTop: 12 }}
+                onClick={clearSearch}
+              >
+                검색 초기화
+              </button>
+            </div>
           ) : (
             <table className="data-table">
               <thead>
@@ -500,7 +761,7 @@ export function LedgerPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredComplaints.map((c, i) => (
+                {displayComplaints.map((c, i) => (
                   <tr key={c.id}>
                     <td className="num">{i + 1}</td>
                     <td>
@@ -537,16 +798,7 @@ export function LedgerPage() {
                         <button
                           type="button"
                           className="btn btn-danger"
-                          onClick={() => {
-                            void deleteComplaint(c.id).catch((err: unknown) => {
-                              console.error(err);
-                              window.alert(
-                                err instanceof Error
-                                  ? err.message
-                                  : "삭제에 실패했습니다.",
-                              );
-                            });
-                          }}
+                          onClick={() => requestDelete(c)}
                         >
                           삭제
                         </button>
@@ -559,6 +811,52 @@ export function LedgerPage() {
           )}
         </div>
       </div>
+
+      {deleteTarget && (
+        <div
+          className="settings-confirm-backdrop"
+          role="presentation"
+          onClick={cancelDelete}
+        >
+          <div
+            className="settings-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ledger-delete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="ledger-delete-title">민원 삭제 확인</h3>
+            <p>
+              아래 민원을 삭제합니다. 삭제 후에는 되돌릴 수 없습니다.
+            </p>
+            <p className="ledger-delete-preview" title={deleteTarget.content}>
+              {deleteTarget.content?.trim() || deleteTarget.id}
+            </p>
+            {deleteErr && (
+              <p className="settings-alert is-error">{deleteErr}</p>
+            )}
+            <div className="settings-confirm-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={cancelDelete}
+                disabled={deleting}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void confirmDelete()}
+                disabled={deleting}
+                autoFocus
+              >
+                {deleting ? "삭제 중…" : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

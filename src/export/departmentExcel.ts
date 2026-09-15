@@ -49,13 +49,10 @@ function styleCell(
  * 원본 「부서별 처리 현황」 양식으로 엑셀 생성.
  * 시트명: (부서별현황)
  */
-export async function exportDepartmentExcel(
+export function addDepartmentSheet(
+  wb: ExcelJS.Workbook,
   rows: DepartmentStatusRow[],
-): Promise<void> {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "통합민원정보";
-  wb.created = new Date();
-
+): void {
   const ws = wb.addWorksheet("(부서별현황)", {
     views: [{ state: "frozen", ySplit: 3 }],
   });
@@ -128,6 +125,15 @@ export async function exportDepartmentExcel(
       styleCell(cell, { hot, num: i !== 1 });
     });
   });
+}
+
+export async function exportDepartmentExcel(
+  rows: DepartmentStatusRow[],
+): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "통합민원정보";
+  wb.created = new Date();
+  addDepartmentSheet(wb, rows);
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {

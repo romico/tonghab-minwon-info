@@ -76,6 +76,7 @@ interface StoreValue {
   /** SQLite API 최초 로딩 */
   storeLoading: boolean;
   storeError: string | null;
+  refreshComplaints: () => Promise<void>;
   reportDate: string;
   setReportDate: (date: string) => void;
   periodFrom: string;
@@ -87,7 +88,7 @@ interface StoreValue {
   upsertComplaint: (input: ComplaintInput) => Promise<void>;
   addComplaints: (inputs: ComplaintInput[]) => Promise<number>;
   deleteComplaint: (id: string) => Promise<void>;
-  resetSeed: () => Promise<void>;
+  resetSeed: (password: string) => Promise<void>;
   departmentStatus: DepartmentStatusRow[];
   summary: SummaryReport;
   daily: DailyReport;
@@ -136,6 +137,24 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const refreshComplaints = useCallback(async () => {
+    setStoreLoading(true);
+    setStoreError(null);
+    try {
+      const list = await apiListComplaints();
+      setComplaints(list);
+    } catch (err) {
+      setStoreError(
+        err instanceof Error
+          ? err.message
+          : "데이터를 새로고침하지 못했습니다.",
+      );
+      throw err;
+    } finally {
+      setStoreLoading(false);
+    }
   }, []);
 
   const runPeriodUpdate = useCallback((apply: () => void) => {
@@ -216,8 +235,8 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
     setComplaints((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
-  const resetSeed = useCallback(async () => {
-    const items = await apiResetSeed();
+  const resetSeed = useCallback(async (password: string) => {
+    const items = await apiResetSeed(password);
     setComplaints(items);
   }, []);
 
@@ -240,6 +259,7 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
       filteredComplaints,
       storeLoading,
       storeError,
+      refreshComplaints,
       reportDate,
       setReportDate,
       periodFrom,
@@ -261,6 +281,7 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
       filteredComplaints,
       storeLoading,
       storeError,
+      refreshComplaints,
       reportDate,
       setReportDate,
       periodFrom,

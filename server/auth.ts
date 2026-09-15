@@ -217,10 +217,7 @@ export function changePassword(
   if (!newPassword || newPassword.length < 4) {
     throw new Error("새 비밀번호는 4자 이상이어야 합니다.");
   }
-  const row = getDb()
-    .prepare(`SELECT id, password_hash FROM users WHERE id = ?`)
-    .get(userId) as { id: number; password_hash: string } | undefined;
-  if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+  if (!verifyUserPassword(userId, currentPassword)) {
     throw new Error("현재 비밀번호가 올바르지 않습니다.");
   }
   getDb()
@@ -229,6 +226,17 @@ export function changePassword(
     )
     .run(hashPassword(newPassword), userId);
   // 비밀번호 변경 시 다른 세션 전부(현재 토큰은 라우트에서 유지 가능)
+}
+
+
+/** 로그인 사용자의 비밀번호 확인 (민감 작업 재인증) */
+export function verifyUserPassword(userId: number, password: string): boolean {
+  if (!password) return false;
+  const row = getDb()
+    .prepare(`SELECT password_hash FROM users WHERE id = ?`)
+    .get(userId) as { password_hash: string } | undefined;
+  if (!row) return false;
+  return verifyPassword(password, row.password_hash);
 }
 
 export function revokeOtherSessions(userId: number, keepToken: string): void {
