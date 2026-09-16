@@ -88,7 +88,7 @@ interface StoreValue {
   upsertComplaint: (input: ComplaintInput) => Promise<void>;
   addComplaints: (inputs: ComplaintInput[]) => Promise<number>;
   deleteComplaint: (id: string) => Promise<void>;
-  resetSeed: (password: string) => Promise<void>;
+  resetSeed: (password: string, totpCode?: string) => Promise<void>;
   departmentStatus: DepartmentStatusRow[];
   summary: SummaryReport;
   daily: DailyReport;
@@ -235,8 +235,8 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
     setComplaints((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
-  const resetSeed = useCallback(async (password: string) => {
-    const items = await apiResetSeed(password);
+  const resetSeed = useCallback(async (password: string, totpCode?: string) => {
+    const items = await apiResetSeed(password, totpCode);
     setComplaints(items);
   }, []);
 

@@ -1,11 +1,17 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import express from "express";
-import { initAuditTable, listAuditLogs, writeAudit } from "./audit.ts";
+import { initAuditTable, listAuditLogs, writeAudit, clearAuditLogs } from "./audit.ts";
 import {
+  beginTotpSetup,
   changePassword,
+  completeTotpLogin,
+  confirmTotpSetup,
+  disableTotp,
   getSession,
   getSettings,
+  getTotpStatus,
+  assertTotpIfEnabled,
   initAuthTables,
   login,
   logout,
@@ -28,7 +34,17 @@ import {
   resetSeed,
   upsertComplaint,
 } from "./db.ts";
+import {
+  freezeSnapshot,
+  getLatestSnapshotForDate,
+  getLatestSnapshotsForDates,
+  getSnapshotById,
+  initSnapshotTable,
+  listSnapshots,
+} from "./snapshots.ts";
+import { getVaultStatus, VaultLockedError } from "./vault.ts";
 import type { Complaint, ComplaintInput } from "../src/schema/index.ts";
+import { maskName, maskPhone } from "../src/lib/privacy.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -48,6 +64,7 @@ declare global {
 initDb();
 initAuthTables();
 initAuditTable();
+initSnapshotTable();
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -148,7 +165,10 @@ function clipText(value: string | null | undefined, max = 40): string {
 function complaintAuditDetail(item: Complaint) {
   return {
     content: item.content,
-    complainantName: item.complainantName,
+    complainantName: maskName(item.complainantName),
+    complainantPhone: item.complainantPhone
+      ? maskPhone(item.complainantPhone)
+      : null,
     fieldCode: item.fieldCode,
     departmentId: item.departmentId,
     processStatus: item.processStatus,
@@ -193,18 +213,33 @@ app.post("/api/auth/login", (req, res) => {
     return;
   }
   try {
-    const session = login(username, password);
-    setSessionCookie(res, session);
+    const result = login(username, password);
+    if (result.requiresTotp) {
+      auditFromReq(req, {
+        username: username.trim(),
+        action: "LOGIN_TOTP_REQUIRED",
+        summary: `${username.trim()} 2단계 인증 대기`,
+      });
+      res.json({
+        requiresTotp: true,
+        challengeToken: result.challengeToken,
+        expiresAt: result.expiresAt,
+      });
+      return;
+    }
+    setSessionCookie(res, result);
     auditFromReq(req, {
-      userId: session.user.id,
-      username: session.user.username,
+      userId: result.user.id,
+      username: result.user.username,
       action: "LOGIN_SUCCESS",
-      summary: `${session.user.username} 로그인`,
+      summary: `${result.user.username} 로그인`,
+      detail: { vault: result.vault },
     });
     res.json({
-      user: session.user,
-      expiresAt: session.expiresAt,
-      ttlMinutes: session.ttlMinutes,
+      user: result.user,
+      expiresAt: result.expiresAt,
+      ttlMinutes: result.ttlMinutes,
+      vault: result.vault,
     });
   } catch (err) {
     auditFromReq(req, {
@@ -217,6 +252,53 @@ app.post("/api/auth/login", (req, res) => {
     });
     res.status(401).json({
       error: err instanceof Error ? err.message : "로그인 실패",
+    });
+  }
+});
+
+app.post("/api/auth/login/totp", (req, res) => {
+  const { challengeToken, code } = req.body as {
+    challengeToken?: string;
+    code?: string;
+  };
+  if (!challengeToken || !code) {
+    res.status(400).json({ error: "인증 코드가 필요합니다." });
+    return;
+  }
+  try {
+    const result = completeTotpLogin(challengeToken, code);
+    setSessionCookie(res, result);
+    auditFromReq(req, {
+      userId: result.user.id,
+      username: result.user.username,
+      action: "LOGIN_SUCCESS",
+      summary: result.totpReset
+        ? `${result.user.username} 로그인(2FA 손상 해제)`
+        : `${result.user.username} 로그인(2FA)`,
+      detail: {
+        vault: result.vault,
+        totp: true,
+        totpReset: Boolean(result.totpReset),
+      },
+    });
+    res.json({
+      user: result.user,
+      expiresAt: result.expiresAt,
+      ttlMinutes: result.ttlMinutes,
+      vault: result.vault,
+      totpReset: result.totpReset,
+      warning: result.warning,
+    });
+  } catch (err) {
+    auditFromReq(req, {
+      action: "LOGIN_FAIL",
+      summary: "2단계 인증 실패",
+      detail: {
+        reason: err instanceof Error ? err.message : "unknown",
+      },
+    });
+    res.status(401).json({
+      error: err instanceof Error ? err.message : "2단계 인증 실패",
     });
   }
 });
@@ -246,7 +328,82 @@ app.get("/api/auth/me", (req, res) => {
     user: session.user,
     expiresAt: session.expiresAt,
     ttlMinutes: session.ttlMinutes,
+    vault: getVaultStatus(),
   });
+});
+
+app.get("/api/auth/totp", requireAuth, (req, res) => {
+  try {
+    res.json(getTotpStatus(req.session!.user.id));
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "조회 실패",
+    });
+  }
+});
+
+app.post("/api/auth/totp/setup", requireAuth, async (req, res) => {
+  try {
+    const setup = await beginTotpSetup(req.session!.user.id);
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "TOTP_SETUP_BEGIN",
+      summary: "2단계 인증 설정 시작",
+    });
+    res.json(setup);
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "설정 시작 실패",
+    });
+  }
+});
+
+app.post("/api/auth/totp/confirm", requireAuth, (req, res) => {
+  const { code } = req.body as { code?: string };
+  if (!code) {
+    res.status(400).json({ error: "인증 코드를 입력하세요." });
+    return;
+  }
+  try {
+    const result = confirmTotpSetup(req.session!.user.id, code);
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "TOTP_ENABLED",
+      summary: "2단계 인증 활성화",
+    });
+    res.json({ ok: true, recoveryCodes: result.recoveryCodes });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "활성화 실패",
+    });
+  }
+});
+
+app.post("/api/auth/totp/disable", requireAuth, (req, res) => {
+  const { password, code } = req.body as {
+    password?: string;
+    code?: string;
+  };
+  if (!password || !code) {
+    res.status(400).json({ error: "비밀번호와 인증 코드가 필요합니다." });
+    return;
+  }
+  try {
+    disableTotp(req.session!.user.id, password, code);
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "TOTP_DISABLED",
+      summary: "2단계 인증 비활성화",
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "비활성화 실패",
+    });
+  }
 });
 
 app.post("/api/auth/refresh", (req, res) => {
@@ -257,6 +414,7 @@ app.post("/api/auth/refresh", (req, res) => {
       user: session.user,
       expiresAt: session.expiresAt,
       ttlMinutes: session.ttlMinutes,
+      vault: getVaultStatus(),
     });
   } catch (err) {
     clearSessionCookie(res);
@@ -268,15 +426,21 @@ app.post("/api/auth/refresh", (req, res) => {
 
 app.post("/api/auth/change-password", requireAuth, (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body as {
+    const { currentPassword, newPassword, totpCode } = req.body as {
       currentPassword?: string;
       newPassword?: string;
+      totpCode?: string;
     };
     if (!currentPassword || !newPassword) {
       res.status(400).json({ error: "현재/새 비밀번호를 입력하세요." });
       return;
     }
-    changePassword(req.session!.user.id, currentPassword, newPassword);
+    changePassword(
+      req.session!.user.id,
+      currentPassword,
+      newPassword,
+      totpCode,
+    );
     revokeOtherSessions(req.session!.user.id, req.session!.token);
     const session = refreshSession(req.session!.token);
     setSessionCookie(res, session);
@@ -290,6 +454,7 @@ app.post("/api/auth/change-password", requireAuth, (req, res) => {
       ok: true,
       expiresAt: session.expiresAt,
       ttlMinutes: session.ttlMinutes,
+      vault: getVaultStatus(),
     });
   } catch (err) {
     res.status(400).json({
@@ -298,10 +463,12 @@ app.post("/api/auth/change-password", requireAuth, (req, res) => {
   }
 });
 
-app.get("/api/settings", requireAuth, (_req, res) => {
+app.get("/api/settings", requireAuth, (req, res) => {
   res.json({
     ...getSettings(),
     minSessionTtlMinutes: MIN_SESSION_TTL_MINUTES,
+    vault: getVaultStatus(),
+    totp: getTotpStatus(req.session!.user.id),
   });
 });
 
@@ -345,6 +512,119 @@ app.get("/api/audit", requireAuth, (req, res) => {
       typeof req.query.username === "string" ? req.query.username : undefined,
   });
   res.json(result);
+});
+
+function filterByNotifiedPeriod(
+  complaints: Complaint[],
+  from: string | null,
+  to: string | null,
+): Complaint[] {
+  if (!from && !to) return complaints;
+  return complaints.filter((c) => {
+    if (!c.notifiedAt) return false;
+    if (from && c.notifiedAt < from) return false;
+    if (to && c.notifiedAt > to) return false;
+    return true;
+  });
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+app.get("/api/reports/snapshots", requireAuth, (req, res) => {
+  const datesRaw =
+    typeof req.query.dates === "string" ? req.query.dates.trim() : "";
+  if (datesRaw) {
+    const dates = datesRaw
+      .split(",")
+      .map((d) => d.trim())
+      .filter((d) => ISO_DATE_RE.test(d));
+    res.json({ byDate: getLatestSnapshotsForDates(dates) });
+    return;
+  }
+  const result = listSnapshots({
+    from: typeof req.query.from === "string" ? req.query.from : undefined,
+    to: typeof req.query.to === "string" ? req.query.to : undefined,
+    limit: Number(req.query.limit ?? 50),
+    offset: Number(req.query.offset ?? 0),
+  });
+  res.json(result);
+});
+
+app.get("/api/reports/snapshots/latest/:date", requireAuth, (req, res) => {
+  const raw = req.params.date;
+  const date = Array.isArray(raw) ? raw[0] : raw;
+  if (!date || !ISO_DATE_RE.test(date)) {
+    res.status(400).json({ error: "보고일 형식이 올바르지 않습니다." });
+    return;
+  }
+  const snap = getLatestSnapshotForDate(date);
+  if (!snap) {
+    res.status(404).json({ error: "해당 보고일 스냅샷이 없습니다." });
+    return;
+  }
+  res.json({ snapshot: snap });
+});
+
+app.get("/api/reports/snapshots/:id", requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "잘못된 스냅샷 ID" });
+    return;
+  }
+  const snap = getSnapshotById(id);
+  if (!snap) {
+    res.status(404).json({ error: "스냅샷을 찾을 수 없습니다." });
+    return;
+  }
+  res.json({ snapshot: snap });
+});
+
+app.post("/api/reports/snapshots", requireAuth, (req, res) => {
+  const body = req.body as {
+    reportDate?: string;
+    periodFrom?: string | null;
+    periodTo?: string | null;
+    note?: string | null;
+  };
+  const reportDate = body.reportDate ?? "";
+  if (!ISO_DATE_RE.test(reportDate)) {
+    res.status(400).json({ error: "보고일(reportDate)이 필요합니다." });
+    return;
+  }
+  const periodFrom =
+    typeof body.periodFrom === "string" && ISO_DATE_RE.test(body.periodFrom)
+      ? body.periodFrom
+      : null;
+  const periodTo =
+    typeof body.periodTo === "string" && ISO_DATE_RE.test(body.periodTo)
+      ? body.periodTo
+      : null;
+  const all = listComplaints();
+  const filtered = filterByNotifiedPeriod(all, periodFrom, periodTo);
+  const snap = freezeSnapshot({
+    reportDate,
+    periodFrom,
+    periodTo,
+    complaints: filtered,
+    frozenBy: req.session!.user.username,
+    note: typeof body.note === "string" ? body.note : null,
+  });
+  auditFromReq(req, {
+    userId: req.session!.user.id,
+    username: req.session!.user.username,
+    action: "SNAPSHOT_FREEZE",
+    resourceType: "report_snapshot",
+    resourceId: String(snap.id),
+    summary: `보고 스냅샷 확정 ${reportDate} (${filtered.length}건)`,
+    detail: {
+      reportDate,
+      periodFrom,
+      periodTo,
+      complaintCount: filtered.length,
+      kpi: snap.kpi,
+    },
+  });
+  res.status(201).json({ snapshot: snap });
 });
 
 app.get("/api/complaints", requireAuth, (_req, res) => {
@@ -414,19 +694,40 @@ app.post("/api/complaints/replace", requireAuth, (req, res) => {
 app.post("/api/complaints/reset-seed", requireAuth, (req, res) => {
   const password =
     typeof req.body?.password === "string" ? req.body.password : "";
+  const totpCode =
+    typeof req.body?.totpCode === "string" ? req.body.totpCode : undefined;
   if (!verifyUserPassword(req.session!.user.id, password)) {
     res.status(401).json({ error: "비밀번호가 올바르지 않습니다." });
     return;
   }
+  try {
+    assertTotpIfEnabled(req.session!.user.id, totpCode);
+  } catch (err) {
+    res.status(401).json({
+      error: err instanceof Error ? err.message : "2단계 인증이 필요합니다.",
+    });
+    return;
+  }
   const items = resetSeed();
+  clearAuditLogs();
   auditFromReq(req, {
     userId: req.session!.user.id,
     username: req.session!.user.username,
     action: "COMPLAINT_RESET_SEED",
     resourceType: "complaint",
-    summary: `DB 초기화(샘플 복원) ${items.length}건`,
+    summary: `DB 초기화(샘플 복원) ${items.length}건 · 스냅샷·감사로그 초기화`,
+    detail: {
+      complaintCount: items.length,
+      clearedSnapshots: true,
+      clearedAuditLogs: true,
+    },
   });
-  res.json({ complaints: items, count: items.length });
+  res.json({
+    complaints: items,
+    count: items.length,
+    clearedSnapshots: true,
+    clearedAuditLogs: true,
+  });
 });
 
 app.delete("/api/complaints/:id", requireAuth, (req, res) => {
@@ -459,6 +760,10 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    if (err instanceof VaultLockedError) {
+      res.status(401).json({ error: err.message });
+      return;
+    }
     console.error(err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "서버 오류",

@@ -10,13 +10,15 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "start:api": "tsx server/index.ts",
-    "release:win": "node scripts/build-release.mjs"
+    "release:win": "node scripts/build-release.mjs",
+    "seed:year": "node scripts/seed-year.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.2",
+    "qrcode": "^1.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.2"
@@ -26,6 +28,7 @@
     "@types/file-saver": "^2.0.7",
     "@types/jszip": "^3.4.0",
     "@types/node": "^26.5.1",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",

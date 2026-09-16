@@ -90,7 +90,7 @@ CREATE INDEX IF NOT EXISTS idx_complaints_received ON complaints(received_at);
 ```
 
 - 빈 DB면 `SEED_COMPLAINTS` 샘플 삽입.
-- `reset-seed` 시 민원만 샘플로 복원(계정·세션·감사·설정 유지).
+- `reset-seed` 시 민원·보고 스냅샷을 비우고 민원만 샘플로 복원(계정·세션·감사·설정 유지).
 
 ### 2.2 `users`
 

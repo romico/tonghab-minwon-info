@@ -17,10 +17,13 @@ import type {
   DepartmentStatusRow,
   DimensionStat,
   FieldCode,
+  GrowthMetric,
   PeriodBucketKey,
   ProcessOverview,
   RouteDetailGroup,
   RouteGroup,
+  SnapshotGrowthComparison,
+  SnapshotKpi,
   SummaryReport,
 } from "./types";
 
@@ -225,4 +228,97 @@ export function routeGroupLabel(group: RouteGroup | "TOTAL"): string {
 
 export function fieldLabel(code: FieldCode | "TOTAL"): string {
   return code === "TOTAL" ? "계" : FIELD_LABEL[code];
+}
+
+export function shiftIsoDate(iso: string, days: number): string {
+  const d = parseDate(iso);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 보고일 기준 스냅샷 KPI (플로우·스톡) */
+export function buildSnapshotKpi(
+  complaints: Complaint[],
+  reportDate: string,
+): SnapshotKpi {
+  let dailyReceived = 0;
+  let dailyDone = 0;
+  let inProgressCount = 0;
+  let doneCount = 0;
+  let impossibleCount = 0;
+
+  for (const c of complaints) {
+    if (c.notifiedAt === reportDate) dailyReceived += 1;
+    if (c.processStatus === "DONE") {
+      doneCount += 1;
+      if (c.completedOrDueAt === reportDate) dailyDone += 1;
+    }
+    if (c.processStatus === "IMPOSSIBLE") impossibleCount += 1;
+    if (isUnprocessed(c)) inProgressCount += 1;
+  }
+
+  return {
+    reportDate,
+    dailyReceived,
+    dailyDone,
+    inProgressCount,
+    cumulativeReceived: complaints.length,
+    doneCount,
+    impossibleCount,
+  };
+}
+
+function growthMetric(current: number, baseline: number): GrowthMetric {
+  const delta = current - baseline;
+  return {
+    current,
+    baseline,
+    delta,
+    rate: baseline === 0 ? null : delta / baseline,
+  };
+}
+
+/**
+ * 두 스냅샷 KPI로 접수·처리중 증감율 비교.
+ * 스냅샷이 없는 날은 호출하지 않는다(추정 금지).
+ */
+export function compareSnapshotGrowth(
+  current: SnapshotKpi,
+  baseline: SnapshotKpi,
+  meta: {
+    currentSnapshotId: number;
+    baselineSnapshotId: number;
+    lagDays: number;
+  },
+): SnapshotGrowthComparison {
+  const received = growthMetric(current.dailyReceived, baseline.dailyReceived);
+  const inProgress = growthMetric(
+    current.inProgressCount,
+    baseline.inProgressCount,
+  );
+  const gap =
+    received.rate != null && inProgress.rate != null
+      ? inProgress.rate - received.rate
+      : null;
+
+  return {
+    reportDate: current.reportDate,
+    baselineDate: baseline.reportDate,
+    lagDays: meta.lagDays,
+    currentSnapshotId: meta.currentSnapshotId,
+    baselineSnapshotId: meta.baselineSnapshotId,
+    received,
+    inProgress,
+    gap,
+  };
+}
+
+export function formatGrowthRate(rate: number | null): string {
+  if (rate == null) return "—";
+  const pct = Math.round(rate * 1000) / 10;
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct}%`;
 }

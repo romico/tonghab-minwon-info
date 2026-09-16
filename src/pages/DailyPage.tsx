@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SnapshotFreezeBar } from "@/components/SnapshotFreezeBar";
 import {
   DAILY_ROUTE_GROUPS,
   DONGS,
@@ -43,7 +44,8 @@ export function DailyPage() {
         <div>
           <h1>일일보고</h1>
           <p>
-            보고일 {reportDate} 기준 경로×분야 매트릭스와 동별 시민불편 현황입니다.
+            보고일 {reportDate} 기준 경로×분야 매트릭스와 동별 시민불편
+            현황입니다. 바로 아래 카드에서 스냅샷을 확정하세요.
           </p>
         </div>
         <div className="toolbar">
@@ -57,6 +59,8 @@ export function DailyPage() {
           </button>
         </div>
       </div>
+
+      <SnapshotFreezeBar />
 
       <div className="panel">
         <div className="panel-head">
@@ -81,7 +85,14 @@ export function DailyPage() {
               <tr>
                 {COL_KEYS.map((col) => (
                   <th key={`${col}-sub`} colSpan={3} className="num group">
-                    <span style={{ display: "inline-grid", gridTemplateColumns: "1fr 1fr 1fr", width: "100%", gap: 4 }}>
+                    <span
+                      style={{
+                        display: "inline-grid",
+                        gridTemplateColumns: "1fr 1fr 1fr",
+                        width: "100%",
+                        gap: 4,
+                      }}
+                    >
                       <span>일접수</span>
                       <span>처리누적</span>
                       <span>접수누적</span>
@@ -101,7 +112,11 @@ export function DailyPage() {
                       cumulativeReceived: 0,
                     };
                     return (
-                      <td key={`${row}-${col}`} colSpan={3} className="num group">
+                      <td
+                        key={`${row}-${col}`}
+                        colSpan={3}
+                        className="num group"
+                      >
                         <span
                           style={{
                             display: "inline-grid",

@@ -10,6 +10,7 @@ dist-ssr
 docs/~$*
 docs/*.hwpx
 docs/*.xlsx
+.venv-hwpx/
 
 # SQLite
 data/*.db

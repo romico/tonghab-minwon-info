@@ -18,7 +18,7 @@ const HIDE_PERIOD_PATHS = new Set(["/audit", "/settings"]);
 
 export function AppLayout() {
   const location = useLocation();
-  const { user, logout, expiresAt } = useAuth();
+  const { user, logout, expiresAt, authWarning, clearAuthWarning } = useAuth();
   const {
     periodFrom,
     periodTo,
@@ -30,6 +30,8 @@ export function AppLayout() {
     storeError,
     filteredComplaints,
     complaints,
+    reportDate,
+    setReportDate,
   } = useComplaintStore();
 
   const [navOpen, setNavOpen] = useState(false);
@@ -66,6 +68,14 @@ export function AppLayout() {
 
   return (
     <div className={`app-shell${navOpen ? " is-nav-open" : ""}`}>
+      {authWarning && (
+        <div className="auth-warning-banner" role="status">
+          <p>{authWarning}</p>
+          <button type="button" className="btn" onClick={clearAuthWarning}>
+            닫기
+          </button>
+        </div>
+      )}
       <header className="mobile-bar">
         <button
           type="button"
@@ -150,7 +160,21 @@ export function AppLayout() {
         {showPeriodFilters && (
           <div className="page-header global-filters">
             <div className="toolbar period-search">
-              <span className="period-label">보고일 기준</span>
+              <span className="period-label">보고일</span>
+              <label className="field period-field">
+                보고일
+                <input
+                  type="date"
+                  value={reportDate}
+                  disabled={busy}
+                  onChange={(e) => setReportDate(e.target.value)}
+                  title="일접수·기간버킷·스냅샷 기준일"
+                />
+              </label>
+              <span className="period-sep" aria-hidden>
+                |
+              </span>
+              <span className="period-label">통보일 기간</span>
               <label className="field period-field">
                 시작일
                 <input

@@ -3,15 +3,20 @@ import { getDb } from "./db.ts";
 export type AuditAction =
   | "LOGIN_SUCCESS"
   | "LOGIN_FAIL"
+  | "LOGIN_TOTP_REQUIRED"
   | "LOGOUT"
   | "PASSWORD_CHANGE"
   | "SETTINGS_UPDATE"
+  | "TOTP_SETUP_BEGIN"
+  | "TOTP_ENABLED"
+  | "TOTP_DISABLED"
   | "COMPLAINT_CREATE"
   | "COMPLAINT_UPDATE"
   | "COMPLAINT_DELETE"
   | "COMPLAINT_BATCH_CREATE"
   | "COMPLAINT_REPLACE"
-  | "COMPLAINT_RESET_SEED";
+  | "COMPLAINT_RESET_SEED"
+  | "SNAPSHOT_FREEZE";
 
 export interface AuditLog {
   id: number;
@@ -86,6 +91,10 @@ export function writeAudit(input: {
       input.ip ?? null,
       input.userAgent ?? null,
     );
+}
+
+export function clearAuditLogs(): void {
+  getDb().exec("DELETE FROM audit_logs");
 }
 
 export function listAuditLogs(query: AuditQuery = {}): {

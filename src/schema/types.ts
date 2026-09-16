@@ -169,9 +169,62 @@ export interface DailyReport {
   deokjinTotal: number;
 }
 
+/** 일자별 스냅샷에 고정하는 KPI (플로우 + 스톡) */
+export interface SnapshotKpi {
+  reportDate: string;
+  /** 일접수: notifiedAt === reportDate */
+  dailyReceived: number;
+  /** 일완료: DONE && completedOrDueAt === reportDate */
+  dailyDone: number;
+  /** 일말 처리중(미처리) 잔량: SCHEDULED + IMPOSSIBLE */
+  inProgressCount: number;
+  /** 누적 접수(스냅샷 대상 집합) */
+  cumulativeReceived: number;
+  /** 누적 완료 */
+  doneCount: number;
+  /** 처리불가 잔량 */
+  impossibleCount: number;
+}
+
+/** 저장·API용 보고 스냅샷 (이력형 — 같은 보고일 재확정 시 새 행) */
+export interface ReportSnapshot {
+  id: number;
+  reportDate: string;
+  periodFrom: string | null;
+  periodTo: string | null;
+  frozenAt: string;
+  frozenBy: string | null;
+  complaintIds: string[];
+  kpi: SnapshotKpi;
+  daily: DailyReport;
+  note: string | null;
+}
+
+/** @deprecated ReportSnapshot 사용. 스키마 문서 호환용 */
 export interface DailyReportSnapshot {
   reportDate: string;
   payload: DailyReport;
   frozenAt: string;
   frozenBy: string | null;
+}
+
+/** 증감율 비교 한 축 (접수 또는 처리중) */
+export interface GrowthMetric {
+  current: number;
+  baseline: number;
+  /** null = 분모 0으로 비율 불가 (절대 건수만 의미) */
+  rate: number | null;
+  delta: number;
+}
+
+export interface SnapshotGrowthComparison {
+  reportDate: string;
+  baselineDate: string;
+  lagDays: number;
+  currentSnapshotId: number;
+  baselineSnapshotId: number;
+  received: GrowthMetric;
+  inProgress: GrowthMetric;
+  /** 처리중 증감율 − 접수 증감율 (둘 다 rate 있을 때만) */
+  gap: number | null;
 }

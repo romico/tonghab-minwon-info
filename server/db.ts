@@ -7,6 +7,14 @@ import {
   type Complaint,
   type ComplaintInput,
 } from "../src/schema/index.ts";
+import {
+  getActiveDek,
+  isVaultEnabled,
+  isVaultUnlocked,
+  sealComplaint,
+  unsealComplaint,
+  VaultLockedError,
+} from "./vault.ts";
 
 /** 실행 폴더 기준 (시작.bat / npm 스크립트가 cwd를 앱 루트로 맞춤) */
 export const DATA_DIR = process.env.TM_DATA_DIR ?? join(process.cwd(), "data");
@@ -47,12 +55,25 @@ export function initDb(): DatabaseSync {
     replaceAll(SEED_COMPLAINTS);
   }
 
-  // 순환 import 방지: 동적 import 대신 index에서 initAuthTables 호출
   return db;
 }
 
+function requireDekForPii(): Buffer | null {
+  if (!isVaultEnabled()) return null;
+  if (!isVaultUnlocked()) throw new VaultLockedError();
+  return getActiveDek();
+}
+
 function rowToComplaint(row: { data: string }): Complaint {
-  return normalizeComplaint(JSON.parse(row.data) as Complaint);
+  const item = normalizeComplaint(JSON.parse(row.data) as Complaint);
+  const dek = requireDekForPii();
+  return dek ? unsealComplaint(item, dek) : item;
+}
+
+function toStoredPayload(item: Complaint): string {
+  const dek = requireDekForPii();
+  const stored = dek ? sealComplaint(item, dek) : item;
+  return JSON.stringify(stored);
 }
 
 export function listComplaints(): Complaint[] {
@@ -68,7 +89,7 @@ export function listComplaints(): Complaint[] {
 export function upsertComplaint(input: ComplaintInput): Complaint {
   const id = input.id ?? String(Date.now());
   const item = normalizeComplaint({ ...input, id });
-  const payload = JSON.stringify(item);
+  const payload = toStoredPayload(item);
   getDb()
     .prepare(
       `INSERT INTO complaints (id, data, notified_at, received_at, updated_at)
@@ -119,7 +140,7 @@ export function addComplaints(inputs: ComplaintInput[]): Complaint[] {
     for (const item of items) {
       insert.run(
         item.id,
-        JSON.stringify(item),
+        toStoredPayload(item),
         item.notifiedAt,
         item.receivedAt,
       );
@@ -146,7 +167,7 @@ export function replaceAll(complaints: Complaint[]): Complaint[] {
     for (const item of normalized) {
       insert.run(
         item.id,
-        JSON.stringify(item),
+        toStoredPayload(item),
         item.notifiedAt,
         item.receivedAt,
       );
@@ -171,5 +192,7 @@ export function complaintExists(id: string): boolean {
 }
 
 export function resetSeed(): Complaint[] {
-  return replaceAll(SEED_COMPLAINTS);
+  const items = replaceAll(SEED_COMPLAINTS);
+  getDb().exec("DELETE FROM report_snapshots");
+  return items;
 }

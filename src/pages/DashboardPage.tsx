@@ -1,4 +1,12 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { SnapshotFreezeBar } from "@/components/SnapshotFreezeBar";
+import { SnapshotGrowthPanel } from "@/components/SnapshotGrowthPanel";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   DEPARTMENTS,
@@ -236,12 +244,30 @@ const PRIORITY_ORDER: Record<PriorityLevel, number> = {
 };
 
 function TrendLineChart({ points }: { points: TrendPoint[] }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  const width = 720;
+  /** 컨테이너 실측 너비 — viewBox와 1:1로 맞춰 가로 늘어나도 원이 찌그러지지 않음 */
+  const [width, setWidth] = useState(720);
   const height = 160;
-  // Y축 라벨 최소 여백만 두고 플롯을 viewBox에 맞춤 (SVG는 preserveAspectRatio=none으로 가로 확장)
-  const pad = { top: 8, right: 8, bottom: 22, left: 24 };
-  const innerW = width - pad.left - pad.right;
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const apply = (w: number) => {
+      const next = Math.max(280, Math.round(w));
+      setWidth((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+    };
+    apply(el.clientWidth);
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) apply(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const pad = { top: 8, right: 8, bottom: 22, left: 28 };
+  const innerW = Math.max(1, width - pad.left - pad.right);
   const innerH = height - pad.top - pad.bottom;
   const maxY = Math.max(
     1,
@@ -281,6 +307,7 @@ function TrendLineChart({ points }: { points: TrendPoint[] }) {
 
   function onMove(e: MouseEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
     const x = ((e.clientX - rect.left) / rect.width) * width;
     if (points.length <= 1) {
       setHoverIdx(0);
@@ -299,11 +326,13 @@ function TrendLineChart({ points }: { points: TrendPoint[] }) {
   }
 
   return (
-    <div className="dash-trend-chart">
+    <div className="dash-trend-chart" ref={wrapRef}>
       <svg
         className="dash-trend-svg"
         viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
+        width="100%"
+        height={height}
+        preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label="민원 접수 및 처리 추이 차트"
         onMouseMove={onMove}
@@ -639,6 +668,9 @@ export function DashboardPage() {
           <span className="dash-kpi-desc">전체 대비 처리완료 비율</span>
         </button>
       </div>
+
+      <SnapshotFreezeBar showDailyLink />
+      <SnapshotGrowthPanel />
 
       <div className="dash-quick">
         <span className="dash-quick-label">빠른 업무 이동</span>

@@ -138,6 +138,7 @@ tonghab-minwon-info/
 | [docs/data-flow.md](./docs/data-flow.md) | 데이터 흐름 |
 | [docs/report-schema.md](./docs/report-schema.md) | 보고서 스키마 |
 | [docs/photo-hwpx-policy.md](./docs/photo-hwpx-policy.md) | 사진·민원카드 정책 |
+| [docs/privacy-security-policy.md](./docs/privacy-security-policy.md) | 개인정보 DB 저장 보안 정책(초안) |
 | [docs/site-snapshots/](./docs/site-snapshots/README.md) | UI 화면 스냅샷 |
 
 ---

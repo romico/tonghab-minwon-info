@@ -61,7 +61,7 @@ interface ComplaintPhoto {
 
 1. 사진은 **민원 레코드에 임베드**한다. DB에 `photos` 테이블이나 `data/uploads/` 디렉터리를 두지 않는다.
 2. API는 민원 JSON 전체를 PUT/POST한다. 이미지 전용 multipart 업로드는 없다.
-3. DB 초기화(`reset-seed`) 시 민원(사진 포함)만 샘플로 교체되고, 계정·감사·설정은 유지된다.
+3. DB 초기화(`reset-seed`) 시 민원(사진 포함)·보고 스냅샷을 비우고 민원만 샘플로 교체되며, 계정·감사·설정은 유지된다.
 4. 엑셀 내보내기(`ledgerExcel`)는 `includeImages` 옵션으로 data URL을 셀 이미지로 삽입한다. 통합 엑셀도 동일 시트 로직을 재사용한다.
 
 ### 2.4 UI 정책
