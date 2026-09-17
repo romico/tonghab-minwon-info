@@ -90,20 +90,18 @@ mkdirSync(join(outDir, "data"), { recursive: true });
 mkdirSync(join(outDir, "runtime"), { recursive: true });
 writeFileSync(
   join(outDir, "data", "README.txt"),
-  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n\n업데이트: 배포본에 GitHub 읽기 토큰이 포함되어 있으면 설정에서 바로 확인할 수 있습니다.\n토큰이 없으면 data\\github-token.txt 또는 data\\update-feed.url 을 추가하세요.\n",
+  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n",
   "utf8",
 );
 
-/** 비공개 릴리스 조회용 — CI secrets.TM_UPDATE_GITHUB_TOKEN 등으로 주입 */
-const embedToken = (
-  process.env.TM_UPDATE_GITHUB_TOKEN?.trim() ||
-  process.env.TM_GITHUB_TOKEN?.trim() ||
-  ""
-);
-if (embedToken) {
-  writeFileSync(join(outDir, "data", "github-token.txt"), `${embedToken}\n`, "utf8");
-  console.log("  data/github-token.txt 포함 (업데이트용)");
-}
+/** 기본 업데이트 피드 — package.json 에 기록 (data 는 DB 전용) */
+const DEFAULT_FEED =
+  process.env.TM_UPDATE_FEED_URL?.trim() ||
+  "https://uany-update.pages.dev/tonghab-minwon-info/update.json";
+/** ZIP은 Pages Function 프록시 (클라이언트 토큰 불필요) */
+const DEFAULT_DOWNLOAD =
+  process.env.TM_UPDATE_DOWNLOAD_URL?.trim() ||
+  `https://tonghab-update-download.romico-ccb.workers.dev/download?tag=v${APP_VERSION}`;
 
 console.log("3/5 Windows Node 런타임 준비…");
 const zipPath = join(cacheDir, NODE_ZIP);
@@ -200,10 +198,9 @@ writeFileSync(
   - 폴더 전체를 복사하면 데이터도 함께 이동합니다.
 
 ■ 업데이트
-  - 설정 → "버전 및 업데이트"에서 확인·적용합니다 (SHA-256 검증, data 폴더 유지).
-  - 공식 배포 ZIP에는 업데이트용 읽기 토큰이 포함되어 별도 설정이 필요 없습니다.
-  - 사내 피드 사용 시: data\\update-feed.url 에 update.json 주소를 넣으세요.
-  - 수동 시: 새 ZIP 해제 후 data 폴더를 그대로 옮기세요.
+  - 설정 → "버전 및 업데이트"에서 확인·적용합니다.
+  - 버전 확인: package.json 의 updateFeedUrl (Cloudflare Pages)
+  - ZIP 적용: 공개 다운로드 프록시 (클라이언트 토큰 불필요)
 
 ■ 포트 변경
   - my-minwon-server.bat 의 set PORT=8787 값을 수정하세요.
@@ -225,12 +222,14 @@ writeFileSync(
       version: APP_VERSION,
       type: "module",
       description: "Windows portable — run my-minwon-server.bat",
+      updateFeedUrl: DEFAULT_FEED,
     },
     null,
     2,
   )}\n`,
   "utf8",
 );
+console.log(`  package.json updateFeedUrl → ${DEFAULT_FEED}`);
 
 const zipName = `tonghab-minwon-info-windows-portable-v${APP_VERSION}.zip`;
 const zipOut = join(root, zipName);
@@ -243,12 +242,9 @@ if (zip.status === 0) {
   const zipStat = statSync(zipOut);
   const sha256 = createHash("sha256").update(readFileSync(zipOut)).digest("hex");
   const publishedAt = new Date().toISOString();
-  const downloadBase = (process.env.TM_UPDATE_DOWNLOAD_BASE ?? "").replace(/\/$/, "");
   const downloadUrl =
     process.env.TM_UPDATE_DOWNLOAD_URL?.trim() ||
-    (downloadBase
-      ? `${downloadBase}/${zipName}`
-      : `https://github.com/romico/tonghab-minwon-info/releases/download/v${APP_VERSION}/${zipName}`);
+    DEFAULT_DOWNLOAD;
 
   const manifest = {
     version: APP_VERSION,

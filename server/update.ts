@@ -153,24 +153,52 @@ function resolveGithubToken(): string | null {
   }
 }
 
+/** 기본 업데이트 피드 (Cloudflare Pages) */
+export const DEFAULT_UPDATE_FEED_URL =
+  process.env.TM_DEFAULT_UPDATE_FEED_URL?.trim() ||
+  "https://uany-update.pages.dev/tonghab-minwon-info/update.json";
+
+function readPackageUpdateFeedUrl(): string | null {
+  const candidates = [
+    join(ROOT, "package.json"),
+    join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
+  ];
+  for (const path of candidates) {
+    try {
+      if (!existsSync(path)) continue;
+      const pkg = JSON.parse(readFileSync(path, "utf8")) as {
+        updateFeedUrl?: string;
+        tmUpdateFeedUrl?: string;
+      };
+      const url = (pkg.updateFeedUrl ?? pkg.tmUpdateFeedUrl)?.trim();
+      if (url) return url;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
 /**
  * 업데이트 매니페스트 URL.
- * TM_UPDATE_FEED_URL → data/update-feed.url
+ * TM_UPDATE_FEED_URL → data/update-feed.url(선택 덮어쓰기) → package.json#updateFeedUrl → 기본값
  */
 export function resolveFeedUrl(): string | null {
   const fromEnv = process.env.TM_UPDATE_FEED_URL?.trim();
   if (fromEnv) return fromEnv;
   const filePath = join(DATA_DIR, "update-feed.url");
   try {
-    if (!existsSync(filePath)) return null;
-    const text = readFileSync(filePath, "utf8")
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .find((l) => l && !l.startsWith("#"));
-    return text || null;
+    if (existsSync(filePath)) {
+      const text = readFileSync(filePath, "utf8")
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l && !l.startsWith("#"));
+      if (text) return text;
+    }
   } catch {
-    return null;
+    /* fall through */
   }
+  return readPackageUpdateFeedUrl() || DEFAULT_UPDATE_FEED_URL;
 }
 
 const FEED_URL_FILE = () => join(DATA_DIR, "update-feed.url");
@@ -216,7 +244,7 @@ export function getUpdateConfig(): UpdateConfig {
   })();
   const effectiveToken = envToken || fileToken;
   return {
-    feedUrl: envFeed || fileFeed,
+    feedUrl: envFeed || fileFeed || DEFAULT_UPDATE_FEED_URL,
     feedUrlFromEnv: Boolean(envFeed),
     githubTokenConfigured: Boolean(effectiveToken),
     githubTokenFromEnv: Boolean(envToken),
@@ -516,15 +544,15 @@ async function checkFromGithub(): Promise<UpdateCheckResult> {
       ...base,
       source: "github",
       error: token
-        ? "게시된 릴리스가 없거나 저장소/권한을 확인하세요."
-        : "릴리스를 찾을 수 없습니다. data/update-feed.url 에 update.json 주소를 넣거나, data/github-token.txt 로 GitHub를 사용하세요.",
+        ? "업데이트를 확인할 수 없습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요."
+        : "업데이트를 확인할 수 없습니다. 네트워크 연결을 확인하거나 관리자에게 문의하세요.",
     };
   }
   if (res.status === 401 || res.status === 403) {
     return {
       ...base,
       source: "github",
-      error: `GitHub 인증 실패 (${res.status}). 토큰 권한(contents:read)을 확인하세요.`,
+      error: `업데이트 서버 인증에 실패했습니다. 관리자에게 문의하세요.`,
     };
   }
   if (!res.ok) {
@@ -810,6 +838,6 @@ export async function applyUpdate(options?: {
     toVersion: normalizeVersion(toVersion),
     sha256: actualSha256,
     message:
-      "체크섬 검증 후 업데이트를 적용합니다. 서버가 다시 시작되면 브라우저를 새로고침하세요.",
+      "업데이트를 적용하고 서버를 다시 시작합니다. 잠시 후 화면이 새로고침됩니다.",
   };
 }

@@ -1,7 +1,7 @@
 {
   "name": "tonghab-minwon-info",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "start:api": "tsx server/index.ts",
     "release:win": "node scripts/build-release.mjs",
+    "deploy:update-feed": "node scripts/deploy-update-feed.mjs",
     "seed:year": "node scripts/seed-year.mjs"
   },
   "dependencies": {

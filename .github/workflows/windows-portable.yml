@@ -49,7 +49,6 @@ jobs:
         run: npm run release:win
         env:
           CI: "true"
-          TM_UPDATE_GITHUB_TOKEN: ${{ secrets.TM_UPDATE_GITHUB_TOKEN }}
 
       - name: Read package version
         id: meta
@@ -82,3 +81,15 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy update.json to Cloudflare Pages
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ccb4121a1bcbdea92453f10d67fd4bc9
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_API_TOKEN 시크릿이 없어 Pages 배포를 건너뜁니다."
+            exit 0
+          fi
+          npm run deploy:update-feed
