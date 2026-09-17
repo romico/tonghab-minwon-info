@@ -101,12 +101,37 @@ export type UpdateManifest = {
   platforms?: Record<string, UpdatePlatformEntry>;
 };
 
+function packageJsonCandidates(): string[] {
+  const out = [join(ROOT, "package.json")];
+  // esbuild CJS 번들에서는 import.meta.url 이 없을 수 있음 — 배열 생성 시 예외가 나면 버전 확인 전체가 실패한다.
+  try {
+    const metaUrl =
+      typeof import.meta === "object" &&
+      import.meta &&
+      typeof import.meta.url === "string"
+        ? import.meta.url
+        : null;
+    if (metaUrl) {
+      out.push(join(dirname(fileURLToPath(metaUrl)), "..", "package.json"));
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const cjsDir =
+      typeof __dirname === "string" && __dirname.length > 0 ? __dirname : null;
+    if (cjsDir) {
+      out.push(join(cjsDir, "package.json"));
+      out.push(join(cjsDir, "..", "package.json"));
+    }
+  } catch {
+    /* ESM 환경 */
+  }
+  return out;
+}
+
 function readPackageVersion(): string {
-  const candidates = [
-    join(ROOT, "package.json"),
-    join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
-  ];
-  for (const path of candidates) {
+  for (const path of packageJsonCandidates()) {
     try {
       if (!existsSync(path)) continue;
       const pkg = JSON.parse(readFileSync(path, "utf8")) as { version?: string };
@@ -199,11 +224,7 @@ export const DEFAULT_UPDATE_FEED_URL =
   "https://update.uany.net/tonghab-minwon-info/update.json";
 
 function readPackageUpdateFeedUrl(): string | null {
-  const candidates = [
-    join(ROOT, "package.json"),
-    join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
-  ];
-  for (const path of candidates) {
+  for (const path of packageJsonCandidates()) {
     try {
       if (!existsSync(path)) continue;
       const pkg = JSON.parse(readFileSync(path, "utf8")) as {

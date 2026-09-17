@@ -2,6 +2,13 @@
   "source": "CHANGELOG.md",
   "entries": [
     {
+      "version": "0.1.13",
+      "date": "2026-09-17",
+      "fixed": [
+        "macOS·Linux 포터블에서 버전 확인 시 경로 해석 오류로 실패하던 문제 수정"
+      ]
+    },
+    {
       "version": "0.1.10",
       "date": "2026-09-17",
       "added": [
