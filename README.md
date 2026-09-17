@@ -6,7 +6,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | 0.1.4 |
+| 버전 | 0.1.10 ([변경 이력](./CHANGELOG.md)) |
 | 기본 계정 | `admin` / `admin` |
 | 개발 UI | http://localhost:5173 |
 | API / 프로덕션 | http://127.0.0.1:8787 |
@@ -129,6 +129,7 @@ tonghab-minwon-info/
 ## 문서
 | 문서 | 설명 |
 |---|---|
+| [CHANGELOG.md](./CHANGELOG.md) | 버전별 변경 이력 |
 | [docs/SERVICE_REPORT_OUTLINE.md](./docs/SERVICE_REPORT_OUTLINE.md) | 서비스 분석·기획 보고서 구성안 |
 | [docs/SERVICE_PLAN.md](./docs/SERVICE_PLAN.md) | 서비스 분석·사용자·로드맵·후속 기능 기획서 |
 | [docs/ONBOARDING.md](./docs/ONBOARDING.md) | 새 기여자용 개발 환경·구조·변경·검증 안내 |

@@ -16,6 +16,7 @@
     "release:mac-intel": "node scripts/build-release.mjs --platform darwin-x64",
     "release:all": "node scripts/build-release.mjs --all",
     "deploy:update-feed": "node scripts/deploy-update-feed.mjs",
+    "deploy:landing": "npx wrangler pages deploy landing --project-name tonghab-minwon --commit-dirty=true",
     "seed:year": "node scripts/seed-year.mjs"
   },
   "dependencies": {

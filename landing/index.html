@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="생활민원 관리대장·현황·일일보고를 한곳에서. Windows·Linux·macOS 포터블로 설치 없이 바로 실행."
+    />
+    <title>민원 AX · 통합민원정보</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="topbar-brand" href="#top">민원 AX</a>
+      <nav class="topbar-nav" aria-label="페이지">
+        <a href="#features">기능</a>
+        <a href="#download">다운로드</a>
+        <a href="#notes">변경 이력</a>
+        <a href="#howto">사용 방법</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-brand">
+        <div class="hero-media" aria-hidden="true">
+          <div class="hero-field"></div>
+          <div class="hero-orb hero-orb-a"></div>
+          <div class="hero-orb hero-orb-b"></div>
+          <div class="hero-veil"></div>
+        </div>
+
+        <div class="hero-copy">
+          <p id="hero-brand" class="brand">민원 AX</p>
+          <h1 class="headline">입력은 한 번,<br />보고는 자동으로</h1>
+          <p class="lede">
+            생활민원 관리대장·부서별현황·총괄표·일일보고를 포터블로 바로
+            운영합니다.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="#download">플랫폼별 다운로드</a>
+            <a class="btn btn-ghost" href="#notes">변경 이력 보기</a>
+          </div>
+          <p class="meta" id="release-meta">
+            최신 <span id="release-version">v0.1.12</span> · 내부 업무용 포터블
+            배포
+          </p>
+        </div>
+      </section>
+
+      <section class="section features" id="features" aria-labelledby="features-title">
+        <p class="section-kicker">핵심</p>
+        <h2 id="features-title">관리대장만 쓰면, 보고 숫자는 맞춰집니다</h2>
+        <p class="section-lede">
+          여러 Excel을 손으로 맞추지 않습니다. 한곳의 원천 데이터에서 현황과
+          보고서를 집계합니다.
+        </p>
+
+        <ol class="feature-list">
+          <li>
+            <span class="feature-index">01</span>
+            <div>
+              <h3>관리대장 SSOT</h3>
+              <p>민원 CRUD, HWPX 민원카드 가져오기, 사진 첨부까지 한 화면에서.</p>
+            </div>
+          </li>
+          <li>
+            <span class="feature-index">02</span>
+            <div>
+              <h3>자동 집계 보고</h3>
+              <p>부서별현황 · 총괄표 · 일일보고 · 대시보드가 동일 기준으로 반영.</p>
+            </div>
+          </li>
+          <li>
+            <span class="feature-index">03</span>
+            <div>
+              <h3>포터블 단독 운영</h3>
+              <p>
+                Node 설치 없이 USB·공유폴더에서 실행. 데이터는 로컬 SQLite에
+                보관.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section download" id="download" aria-labelledby="download-title">
+        <p class="section-kicker">다운로드</p>
+        <h2 id="download-title">플랫폼별 포터블 패키지</h2>
+        <p class="section-lede">
+          ZIP 해제 후 실행 스크립트로 시작합니다. 앱 데이터는 패키지 폴더의
+          <code>data</code>에 저장됩니다.
+        </p>
+
+        <ul class="platform-list" id="platform-list">
+          <li>
+            <a
+              class="platform-link"
+              data-platform="win32-x64"
+              href="https://tonghab-update-download.romico-ccb.workers.dev/download?tag=v0.1.12&amp;platform=win32-x64"
+            >
+              <span class="platform-name">Windows</span>
+              <span class="platform-meta">64비트 · x64</span>
+            </a>
+          </li>
+          <li>
+            <a
+              class="platform-link"
+              data-platform="linux-x64"
+              href="https://tonghab-update-download.romico-ccb.workers.dev/download?tag=v0.1.12&amp;platform=linux-x64"
+            >
+              <span class="platform-name">Linux</span>
+              <span class="platform-meta">64비트 · x64</span>
+            </a>
+          </li>
+          <li>
+            <a
+              class="platform-link"
+              data-platform="darwin-arm64"
+              href="https://tonghab-update-download.romico-ccb.workers.dev/download?tag=v0.1.12&amp;platform=darwin-arm64"
+            >
+              <span class="platform-name">macOS</span>
+              <span class="platform-meta">Apple Silicon · arm64</span>
+            </a>
+          </li>
+          <li>
+            <a
+              class="platform-link"
+              data-platform="darwin-x64"
+              href="https://tonghab-update-download.romico-ccb.workers.dev/download?tag=v0.1.12&amp;platform=darwin-x64"
+            >
+              <span class="platform-name">macOS</span>
+              <span class="platform-meta">Intel · x64</span>
+            </a>
+          </li>
+        </ul>
+      </section>
+
+      <section class="section notes" id="notes" aria-labelledby="notes-title">
+        <p class="section-kicker">변경 이력</p>
+        <h2 id="notes-title">릴리스 노트</h2>
+        <div id="changelog-root" class="changelog" aria-live="polite">
+          <!-- changelog.json 로 채움 -->
+        </div>
+      </section>
+
+      <section class="section howto" id="howto" aria-labelledby="howto-title">
+        <p class="section-kicker">시작</p>
+        <h2 id="howto-title">압축 풀고, 실행하고, 브라우저로</h2>
+        <p class="section-lede">
+          OS별 실행 파일은 패키지 안 안내(<code>사용방법.txt</code> 등)를
+          따릅니다.
+        </p>
+
+        <ol class="steps">
+          <li>
+            <strong>ZIP 해제</strong>
+            <span>원하는 폴더에 압축을 풉니다.</span>
+          </li>
+          <li>
+            <strong>서버 실행</strong>
+            <span
+              >압축을 푼 폴더에서 Windows는
+              <code>my-minwon-server.bat</code>을, macOS·Linux는
+              <code>my-minwon-server.sh</code>을 실행합니다.</span
+            >
+          </li>
+          <li>
+            <strong>로그인</strong>
+            <span
+              >열린 브라우저에서 관리자 계정으로 접속합니다. 초기 계정은 패키지
+              안내 파일을 참고하세요.</span
+            >
+          </li>
+        </ol>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-brand">
+        <span class="brand">민원 AX</span>
+        <span class="footer-name">통합민원정보</span>
+      </div>
+      <p class="footer-note">내부 업무용 포터블 배포 · <a href="#notes">변경 이력</a></p>
+    </footer>
+
+    <script src="./script.js" defer></script>
+  </body>
+</html>
