@@ -411,7 +411,7 @@
 | GitHub Release | 예: `v0.1.2` 에 ZIP 첨부 |
 | 사용자 절차 | ZIP 해제 → bat 실행 → admin/admin → 업무 |
 
-포함물: `runtime/node.exe`, `server.cjs`, `dist/`, `data/README.txt`, `사용방법.txt`, `my-minwon-server.bat`.
+포함물: `runtime/node.exe`, `server.cjs`, `dist/`, `data/README.txt`, `readme.txt`, `my-minwon-server.bat`.
 
 ---
 

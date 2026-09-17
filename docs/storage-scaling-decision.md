@@ -183,7 +183,7 @@ Complaint JSON ── photos[].url = /api/media/{id}/{photoId}.jpg  ──► SQ
 - [ ] 현장 백업 담당자 절차: `data/` 통째 복사로 충분한가?  
 - [ ] Vault ON 시 파일 암호화 범위  
 - [ ] 마이그레이션 창구(설정 메뉴)와 실패 복구  
-- [ ] 포터블 배포 `사용방법.txt` / `data/README.txt` 개정  
+- [ ] 포터블 배포 `readme.txt` / `data/README.txt` 개정  
 - [ ] 개인정보 영향평가·보안 검토 필요 여부  
 
 ---
@@ -356,7 +356,7 @@ data/tonghab-minwon.db          ← 활성 (예: 2025 관리연도, 비대)
 - 권장: `data/archives/tonghab-minwon-{label}.db`  
   - `label` 예: `2025`, `2025Q1`, `캠페인명_20260301-20260831`
 - WAL/SHM: 복사 전 `PRAGMA wal_checkpoint(TRUNCATE)` 후 **본편 `.db`만** 아카이브.
-- `data/README.txt` / 포터블 `사용방법.txt`에 “백업 = data 전체(archives 포함)” 명시.
+- `data/README.txt` / 포터블 `readme.txt`에 “백업 = data 전체(archives 포함)” 명시.
 
 #### (C) 과거 데이터 다시 보기
 
@@ -472,7 +472,7 @@ T3  보관본 복원 시도
 - [ ] 연·분기 1회 전환이 업무 캘린더와 맞는가  
 - [x] 활성 유지: 민원만 비움 / 스냅샷·감사·유저 유지  
 - [ ] 복원 기본을 **병합+재암호화**로 할지, MVP는 **통째 교체만** 할지  
-- [ ] 포터블 문서(`사용방법.txt`, `data/README.txt`) 문구  
+- [ ] 포터블 문서(`readme.txt`, `data/README.txt`) 문구  
 - [ ] Vault ON 복원 시 “보관 시점 비밀번호” 안내 카피  
 
 ---

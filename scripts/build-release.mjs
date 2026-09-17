@@ -256,7 +256,7 @@ function writeUsage(outDir, plat) {
   const launcher = isWin ? "my-minwon-server.bat" : "./my-minwon-server.sh";
   const nodeHint = isWin ? "runtime\\node.exe" : "runtime/node";
   writeFileSync(
-    join(outDir, "사용방법.txt"),
+    join(outDir, "readme.txt"),
     `통합민원정보 — ${plat.label} 포터블 실행 안내
 ========================================
 
@@ -269,6 +269,8 @@ function writeUsage(outDir, plat) {
   1. ZIP을 원하는 위치에 압축 해제합니다.
   2. "${launcher}" 를 실행합니다.
   3. 브라우저에서 admin / admin 으로 로그인합니다.
+     · 초기 계정은 설정에서 변경하세요.
+     · 로그인 시 개인정보 DB 암호화가 잠금 해제됩니다.
   4. 종료: 콘솔에서 Ctrl+C
 
 ■ 데이터

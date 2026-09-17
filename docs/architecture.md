@@ -131,7 +131,8 @@ flowchart LR
 | `/summary` | SummaryPage | 총괄표 |
 | `/daily` | DailyPage | 일일보고 |
 | `/audit` | AuditPage | 감사 로그 |
-| `/settings` | SettingsPage | TTL·비밀번호·2FA·용량·아카이브/복원·DB 초기화 |
+| `/settings` | SettingsPage | TTL·비밀번호·2FA·용량·아카이브/복원·DB 초기화·민원 AX 정보 |
+| `/legal/:docId` | LegalDocPage | 법적고지·개인정보·이용약관 등 (로그인 전후 공통) |
 
 네비게이션 순서(사이드바): 홈 → 관리대장 → 부서별현황 → 총괄표 → 일일보고 → 감사로그 → 설정
 

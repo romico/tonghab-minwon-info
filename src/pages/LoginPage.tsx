@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
+import { LegalNavLinks } from "@/components/LegalDocBody";
 import { useAuth } from "@/store/AuthStore";
 
 export function LoginPage() {
@@ -89,9 +90,11 @@ export function LoginPage() {
             {submitting ? "로그인 중…" : "로그인"}
           </button>
           <p className="login-hint">
-            초기 계정: admin / admin (설정에서 변경). 로그인 시 개인정보 DB
-            암호화가 잠금 해제됩니다.
+            로그인 시 개인정보 DB 암호화가 잠금 해제됩니다.
           </p>
+          <nav className="login-legal" aria-label="민원 AX 정보">
+            <LegalNavLinks />
+          </nav>
         </form>
       ) : (
         <form className="login-card" onSubmit={(e) => void onSubmitTotp(e)}>

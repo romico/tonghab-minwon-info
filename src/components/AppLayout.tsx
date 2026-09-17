@@ -137,16 +137,31 @@ export function AppLayout() {
           ))}
         </nav>
         <div className="flow-hint">
-          <div className="flow-user">
-            {user?.username}
-            {expiresAt
-              ? ` · ~${new Date(expiresAt).toLocaleTimeString("ko-KR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}`
-              : ""}
+          <div className="flow-hint-user">
+            <span className="flow-hint-avatar" aria-hidden>
+              {(user?.username ?? "?").slice(0, 1).toUpperCase()}
+            </span>
+            <div className="flow-hint-id">
+              <span className="flow-hint-name">{user?.username}</span>
+              {expiresAt && (
+                <span className="flow-hint-session">
+                  세션{" "}
+                  {new Date(expiresAt).toLocaleTimeString("ko-KR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  까지
+                </span>
+              )}
+            </div>
           </div>
-          <div>{countLabel}</div>
+          <div
+            className={`flow-hint-count${
+              storeError ? " is-error" : periodActive ? " is-period" : ""
+            }`}
+          >
+            {countLabel}
+          </div>
           <button
             type="button"
             className="btn btn-ghost sidebar-logout"

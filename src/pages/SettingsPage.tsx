@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import {
   apiChangePassword,
   apiGetSettings,
@@ -24,6 +25,7 @@ import {
   apiGetVersion,
   type UpdateCheckResult,
 } from "@/api/updates";
+import { LEGAL_NAV, OPERATOR, SITE_URL } from "@/legal/documents";
 import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
 
@@ -625,8 +627,8 @@ export function SettingsPage() {
         <div>
           <h1>설정</h1>
           <p>
-            버전 업데이트, 세션, 보안(암호화·2FA), 비밀번호, DB 초기화를
-            관리합니다.
+            버전 업데이트, 세션, 보안(암호화·2FA), 비밀번호, DB, 민원 AX
+            정보를 관리합니다.
           </p>
         </div>
         {user && <span className="badge">{user.username}</span>}
@@ -1307,6 +1309,85 @@ export function SettingsPage() {
             >
               DB 초기화…
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel settings-panel">
+        <div className="panel-head">
+          <h2>민원 AX 정보</h2>
+          <span className="badge">안내</span>
+        </div>
+        <div className="panel-body settings-panel-body">
+          <p className="settings-lead">
+            제품 소개와 법적 고지 문서입니다. 로그인 전에도{" "}
+            <code>/legal/…</code> 경로로 열람할 수 있습니다.
+          </p>
+
+          <div className="about-hero">
+            <div className="about-hero-main">
+              <p className="about-hero-tagline">입력은 한 번, 보고는 자동으로</p>
+              <p className="about-hero-desc">
+                생활민원 담당 업무용 포터블 앱입니다. 관리대장에 민원을 등록·보완하면
+                대시보드·부서별현황·총괄표·일일보고와 Excel 보고서가 같은 기준으로
+                집계됩니다. 공식 대민 창구나 클라우드 SaaS가 아니라, PC·USB의 로컬
+                SQLite에서 단독 운영합니다.
+              </p>
+              <ul className="about-hero-points">
+                <li>
+                  <strong>관리대장 SSOT</strong>
+                  <span>
+                    HWPX 민원카드 가져오기, 사진 첨부, 처리부서·통보일 관리
+                  </span>
+                </li>
+                <li>
+                  <strong>자동 집계·보고</strong>
+                  <span>
+                    보고일·기간 필터, 보고 확정(스냅샷), 전일·전주 대비 확인
+                  </span>
+                </li>
+                <li>
+                  <strong>포터블 운영</strong>
+                  <span>
+                    Node 설치 불필요, data 폴더 백업, 관리연도 아카이브·복원
+                  </span>
+                </li>
+                <li>
+                  <strong>개인정보 보호</strong>
+                  <span>
+                    저장 암호화·화면 마스킹, (선택) 2단계 인증, 감사 로그
+                  </span>
+                </li>
+              </ul>
+            </div>
+            <div className="about-hero-meta">
+              <div className="about-hero-ver">
+                <span>{appVersion ? `v${appVersion}` : "버전 확인 중…"}</span>
+                <span>{OPERATOR}</span>
+              </div>
+              <a
+                className="btn btn-primary about-site-btn"
+                href={SITE_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                소개 사이트 열기
+              </a>
+            </div>
+          </div>
+
+          <div className="about-docs">
+            <div className="about-docs-title">고지 · 약관</div>
+            <ul className="about-doc-grid">
+              {LEGAL_NAV.map((item) => (
+                <li key={item.id}>
+                  <Link to={`/legal/${item.id}`} className="about-doc-card">
+                    <span className="about-doc-card-title">{item.label}</span>
+                    <span className="about-doc-card-hint">문서 보기</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>

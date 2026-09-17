@@ -5,6 +5,7 @@ import { DailyPage } from "@/pages/DailyPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { DepartmentPage } from "@/pages/DepartmentPage";
 import { LedgerPage } from "@/pages/LedgerPage";
+import { LegalDocPage } from "@/pages/LegalDocPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SummaryPage } from "@/pages/SummaryPage";
@@ -26,6 +27,7 @@ function ProtectedApp() {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/legal/:docId" element={<LegalDocPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -35,6 +37,7 @@ function ProtectedApp() {
     <ComplaintProvider>
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route path="/legal/:docId" element={<LegalDocPage />} />
         <Route element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
           <Route path="ledger" element={<LedgerPage />} />
