@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -25,6 +27,8 @@ export const GITHUB_REPO =
   process.env.TM_GITHUB_REPO?.trim() || "romico/tonghab-minwon-info";
 
 const ASSET_PREFIX = "tonghab-minwon-info-windows-portable-v";
+const MANIFEST_JSON = "update.json";
+const MANIFEST_INI = "update.ini";
 
 export type UpdateCheckResult = {
   currentVersion: string;
@@ -35,10 +39,14 @@ export type UpdateCheckResult = {
   publishedAt: string | null;
   downloadUrl: string | null;
   htmlUrl: string | null;
+  /** 소문자 hex. 있으면 다운로드 후 검증 */
+  sha256: string | null;
+  size: number | null;
   portable: boolean;
   canApply: boolean;
   checkedAt: string;
   source: "github" | "feed" | "none";
+  feedUrl: string | null;
   error?: string;
 };
 
@@ -46,7 +54,20 @@ export type UpdateApplyResult = {
   ok: true;
   fromVersion: string;
   toVersion: string;
+  sha256: string | null;
   message: string;
+};
+
+export type UpdateManifest = {
+  version: string;
+  downloadUrl: string;
+  sha256: string | null;
+  size: number | null;
+  name: string | null;
+  notes: string | null;
+  publishedAt: string | null;
+  htmlUrl: string | null;
+  fileName: string | null;
 };
 
 function readPackageVersion(): string {
@@ -107,6 +128,13 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+function normalizeSha256(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const hex = raw.trim().toLowerCase().replace(/^sha256:/i, "");
+  if (!/^[a-f0-9]{64}$/.test(hex)) return null;
+  return hex;
+}
+
 /**
  * 비공개 GitHub 릴리스용 토큰.
  * 우선순위: TM_GITHUB_TOKEN → GITHUB_TOKEN → data/github-token.txt
@@ -125,8 +153,24 @@ function resolveGithubToken(): string | null {
   }
 }
 
-function resolveFeedUrl(): string | null {
-  return process.env.TM_UPDATE_FEED_URL?.trim() || null;
+/**
+ * 업데이트 매니페스트 URL.
+ * TM_UPDATE_FEED_URL → data/update-feed.url
+ */
+export function resolveFeedUrl(): string | null {
+  const fromEnv = process.env.TM_UPDATE_FEED_URL?.trim();
+  if (fromEnv) return fromEnv;
+  const filePath = join(DATA_DIR, "update-feed.url");
+  try {
+    if (!existsSync(filePath)) return null;
+    const text = readFileSync(filePath, "utf8")
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l && !l.startsWith("#"));
+    return text || null;
+  } catch {
+    return null;
+  }
 }
 
 function githubHeaders(token: string | null, accept: string): Record<string, string> {
@@ -154,45 +198,6 @@ type GhRelease = {
   }>;
 };
 
-type FeedPayload = {
-  version?: string;
-  name?: string;
-  notes?: string;
-  publishedAt?: string;
-  downloadUrl?: string;
-  htmlUrl?: string;
-};
-
-function pickPortableAsset(release: GhRelease): {
-  name: string;
-  /** 브라우저용(공개) 또는 API 자산 URL(비공개+토큰) */
-  downloadUrl: string;
-} | null {
-  const assets = release.assets ?? [];
-  const match = assets.find(
-    (a) =>
-      typeof a.name === "string" &&
-      a.name.startsWith(ASSET_PREFIX) &&
-      a.name.endsWith(".zip"),
-  );
-  if (!match?.name) return null;
-  const token = resolveGithubToken();
-  // 비공개 저장소는 API asset URL + Bearer 가 안정적
-  if (token && typeof match.id === "number") {
-    return {
-      name: match.name,
-      downloadUrl: `https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${match.id}`,
-    };
-  }
-  if (typeof match.browser_download_url === "string") {
-    return { name: match.name, downloadUrl: match.browser_download_url };
-  }
-  if (typeof match.url === "string") {
-    return { name: match.name, downloadUrl: match.url };
-  }
-  return null;
-}
-
 function clipNotes(body: string | null | undefined, max = 800): string | null {
   if (!body) return null;
   const text = body.replace(/\r\n/g, "\n").trim();
@@ -210,44 +215,204 @@ function emptyBase(): UpdateCheckResult {
     publishedAt: null,
     downloadUrl: null,
     htmlUrl: null,
+    sha256: null,
+    size: null,
     portable: isPortableInstall(),
     canApply: canApplyUpdate(),
     checkedAt: new Date().toISOString(),
     source: "none",
+    feedUrl: resolveFeedUrl(),
   };
+}
+
+function resultFromManifest(
+  base: UpdateCheckResult,
+  manifest: UpdateManifest,
+  source: "github" | "feed",
+): UpdateCheckResult {
+  return {
+    ...base,
+    source,
+    latestVersion: manifest.version,
+    updateAvailable: compareVersions(manifest.version, base.currentVersion) > 0,
+    releaseName: manifest.name ?? `v${manifest.version}`,
+    releaseNotes: clipNotes(manifest.notes),
+    publishedAt: manifest.publishedAt,
+    downloadUrl: manifest.downloadUrl,
+    htmlUrl: manifest.htmlUrl,
+    sha256: manifest.sha256,
+    size: manifest.size,
+  };
+}
+
+/** update.ini / version.ini 스타일 파서 */
+export function parseUpdateIni(text: string): UpdateManifest {
+  const map: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith(";") || trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx < 0) continue;
+    const key = trimmed.slice(0, idx).trim().toLowerCase();
+    const value = trimmed.slice(idx + 1).trim();
+    if (key) map[key] = value;
+  }
+  return normalizeManifest({
+    version: map.version ?? map.ver,
+    name: map.name ?? map.title,
+    notes: map.notes ?? map.releasenotes ?? map.description,
+    publishedAt: map.publishedat ?? map.date,
+    downloadUrl: map.url ?? map.downloadurl ?? map.download,
+    htmlUrl: map.htmlurl ?? map.page,
+    sha256: map.sha256 ?? map.hash ?? map.checksum ?? map.md5,
+    size: map.size,
+    fileName: map.filename ?? map.file,
+  });
+}
+
+export function parseUpdateJson(raw: unknown): UpdateManifest {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  return normalizeManifest({
+    version: str(obj.version),
+    name: str(obj.name),
+    notes: str(obj.notes ?? obj.releaseNotes),
+    publishedAt: str(obj.publishedAt ?? obj.published_at),
+    downloadUrl: str(obj.downloadUrl ?? obj.url ?? obj.download_url),
+    htmlUrl: str(obj.htmlUrl ?? obj.html_url),
+    sha256: str(obj.sha256 ?? obj.hash ?? obj.checksum),
+    size: obj.size,
+    fileName: str(obj.fileName ?? obj.filename ?? obj.file),
+  });
+}
+
+function str(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
+}
+
+function normalizeManifest(input: {
+  version?: string;
+  name?: string;
+  notes?: string;
+  publishedAt?: string;
+  downloadUrl?: string;
+  htmlUrl?: string;
+  sha256?: string;
+  size?: unknown;
+  fileName?: string;
+}): UpdateManifest {
+  const version = normalizeVersion(input.version ?? "");
+  const downloadUrl = (input.downloadUrl ?? "").trim();
+  if (!version) {
+    throw new Error("매니페스트에 version 이 없습니다.");
+  }
+  if (!downloadUrl) {
+    throw new Error("매니페스트에 downloadUrl(또는 url) 이 없습니다.");
+  }
+  let size: number | null = null;
+  if (typeof input.size === "number" && Number.isFinite(input.size)) {
+    size = input.size;
+  } else if (typeof input.size === "string" && input.size.trim()) {
+    const n = Number(input.size.trim());
+    if (Number.isFinite(n)) size = n;
+  }
+  // ini 의 md5 필드는 32자 — sha256만 인정
+  const sha256 = normalizeSha256(input.sha256);
+  return {
+    version,
+    downloadUrl,
+    sha256,
+    size,
+    name: input.name?.trim() || null,
+    notes: input.notes?.trim() || null,
+    publishedAt: input.publishedAt?.trim() || null,
+    htmlUrl: input.htmlUrl?.trim() || null,
+    fileName: input.fileName?.trim() || null,
+  };
+}
+
+export async function sha256File(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+  const stream = createReadStream(filePath);
+  for await (const chunk of stream) {
+    hash.update(chunk as Buffer);
+  }
+  return hash.digest("hex");
+}
+
+async function fetchText(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ ok: true; text: string; contentType: string } | { ok: false; status: number }> {
+  const res = await fetch(url, { headers, redirect: "follow" });
+  if (!res.ok) return { ok: false, status: res.status };
+  const text = await res.text();
+  const contentType = res.headers.get("content-type") ?? "";
+  return { ok: true, text, contentType };
+}
+
+function looksLikeIni(url: string, contentType: string, text: string): boolean {
+  if (/\.ini(\?|$)/i.test(url)) return true;
+  if (/ini/i.test(contentType)) return true;
+  const head = text.slice(0, 200).trimStart();
+  return head.startsWith("[") || /^version\s*=/im.test(head);
+}
+
+export async function loadManifestFromUrl(
+  feedUrl: string,
+  headers?: Record<string, string>,
+): Promise<UpdateManifest> {
+  const fetched = await fetchText(feedUrl, {
+    Accept: "application/json, text/plain, */*",
+    "User-Agent": `tonghab-minwon-info/${getCurrentVersion()}`,
+    ...(headers ?? {}),
+  });
+  if (!fetched.ok) {
+    throw new Error(`업데이트 피드 조회 실패 (${fetched.status})`);
+  }
+  if (looksLikeIni(feedUrl, fetched.contentType, fetched.text)) {
+    return parseUpdateIni(fetched.text);
+  }
+  try {
+    return parseUpdateJson(JSON.parse(fetched.text) as unknown);
+  } catch {
+    // JSON 실패 시 ini 재시도
+    return parseUpdateIni(fetched.text);
+  }
 }
 
 async function checkFromFeed(feedUrl: string): Promise<UpdateCheckResult> {
   const base = emptyBase();
-  const res = await fetch(feedUrl, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": `tonghab-minwon-info/${base.currentVersion}`,
-    },
-  });
-  if (!res.ok) {
-    return { ...base, source: "feed", error: `업데이트 피드 조회 실패 (${res.status})` };
-  }
-  const feed = (await res.json()) as FeedPayload;
-  const latestVersion = normalizeVersion(feed.version ?? "");
-  if (!latestVersion || !feed.downloadUrl) {
+  try {
+    const manifest = await loadManifestFromUrl(feedUrl);
+    return resultFromManifest(base, manifest, "feed");
+  } catch (err) {
     return {
       ...base,
       source: "feed",
-      error: "업데이트 피드 형식이 올바르지 않습니다 (version, downloadUrl 필요).",
+      error: err instanceof Error ? err.message : "피드 확인 실패",
     };
   }
-  return {
-    ...base,
-    source: "feed",
-    latestVersion,
-    updateAvailable: compareVersions(latestVersion, base.currentVersion) > 0,
-    releaseName: feed.name ?? `v${latestVersion}`,
-    releaseNotes: clipNotes(feed.notes),
-    publishedAt: feed.publishedAt ?? null,
-    downloadUrl: feed.downloadUrl,
-    htmlUrl: feed.htmlUrl ?? null,
-  };
+}
+
+function pickAsset(
+  release: GhRelease,
+  predicate: (name: string) => boolean,
+): { id: number; name: string; apiUrl: string; browserUrl: string | null; size: number | null } | null {
+  const token = resolveGithubToken();
+  for (const a of release.assets ?? []) {
+    if (typeof a.name !== "string" || !predicate(a.name)) continue;
+    if (typeof a.id !== "number") continue;
+    const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${a.id}`;
+    return {
+      id: a.id,
+      name: a.name,
+      apiUrl: token ? apiUrl : a.browser_download_url || apiUrl,
+      browserUrl: a.browser_download_url ?? null,
+      size: typeof a.size === "number" ? a.size : null,
+    };
+  }
+  return null;
 }
 
 async function checkFromGithub(): Promise<UpdateCheckResult> {
@@ -264,7 +429,7 @@ async function checkFromGithub(): Promise<UpdateCheckResult> {
       source: "github",
       error: token
         ? "게시된 릴리스가 없거나 저장소/권한을 확인하세요."
-        : "릴리스를 찾을 수 없습니다. 비공개 저장소라면 data/github-token.txt 에 읽기 전용 PAT를 넣거나 TM_GITHUB_TOKEN을 설정하세요.",
+        : "릴리스를 찾을 수 없습니다. data/update-feed.url 에 update.json 주소를 넣거나, data/github-token.txt 로 GitHub를 사용하세요.",
     };
   }
   if (res.status === 401 || res.status === 403) {
@@ -291,17 +456,58 @@ async function checkFromGithub(): Promise<UpdateCheckResult> {
       error: "최신 릴리스 태그를 읽지 못했습니다.",
     };
   }
-  const asset = pickPortableAsset(release);
+
+  const zip = pickAsset(
+    release,
+    (name) => name.startsWith(ASSET_PREFIX) && name.endsWith(".zip"),
+  );
+  const manifestAsset = pickAsset(
+    release,
+    (name) =>
+      name === MANIFEST_JSON ||
+      name === MANIFEST_INI ||
+      name.endsWith(`-v${latestVersion}.json`),
+  );
+
+  let sha256: string | null = null;
+  let size: number | null = zip?.size ?? null;
+  let downloadUrl = zip?.apiUrl ?? null;
+  let notes = clipNotes(release.body);
+  let name = release.name ?? `v${latestVersion}`;
+
+  if (manifestAsset) {
+    try {
+      const manifest = await loadManifestFromUrl(
+        manifestAsset.apiUrl,
+        githubHeaders(token, "application/octet-stream"),
+      );
+      sha256 = manifest.sha256;
+      if (manifest.size != null) size = manifest.size;
+      if (manifest.downloadUrl) downloadUrl = manifest.downloadUrl;
+      if (manifest.notes) notes = clipNotes(manifest.notes);
+      if (manifest.name) name = manifest.name;
+    } catch {
+      /* zip 정보만으로 진행 */
+    }
+  }
+
+  // 비공개 + 토큰이면 ZIP도 API asset URL 유지
+  if (token && zip) {
+    downloadUrl = `https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${zip.id}`;
+  }
+
   return {
     ...base,
     source: "github",
     latestVersion,
     updateAvailable: compareVersions(latestVersion, base.currentVersion) > 0,
-    releaseName: release.name ?? `v${latestVersion}`,
-    releaseNotes: clipNotes(release.body),
+    releaseName: name,
+    releaseNotes: notes,
     publishedAt: release.published_at ?? null,
-    downloadUrl: asset?.downloadUrl ?? null,
+    downloadUrl,
     htmlUrl: release.html_url ?? null,
+    sha256,
+    size,
   };
 }
 
@@ -342,6 +548,33 @@ async function downloadFile(url: string, dest: string): Promise<void> {
     throw new Error(`다운로드 실패 (${res.status})`);
   }
   await pipeline(res.body, createWriteStream(dest));
+}
+
+async function verifyDownload(options: {
+  expectedSha256: string | null;
+  expectedSize: number | null;
+  requireChecksum: boolean;
+}): Promise<string> {
+  const st = statSync(DOWNLOAD_ZIP);
+  if (st.size < 1024) {
+    throw new Error("다운로드한 ZIP이 비정상적으로 작습니다.");
+  }
+  if (options.expectedSize != null && st.size !== options.expectedSize) {
+    throw new Error(
+      `파일 크기 불일치: 예상 ${options.expectedSize}바이트, 실제 ${st.size}바이트`,
+    );
+  }
+  const actual = await sha256File(DOWNLOAD_ZIP);
+  if (options.expectedSha256) {
+    if (actual !== options.expectedSha256) {
+      throw new Error(
+        `SHA-256 불일치: 파일이 손상되었거나 위변조되었을 수 있습니다.\n예상 ${options.expectedSha256}\n실제 ${actual}`,
+      );
+    }
+  } else if (options.requireChecksum) {
+    throw new Error("체크섬(sha256) 없이 업데이트를 적용할 수 없습니다.");
+  }
+  return actual;
 }
 
 function expandZipWindows(zipPath: string, destDir: string): void {
@@ -420,12 +653,13 @@ function launchApplyScript(): void {
 }
 
 /**
- * 최신 포터블 ZIP을 받아 적용 스크립트를 띄운 뒤 프로세스를 종료한다.
+ * 최신 포터블 ZIP을 받아 체크섬 검증 후 적용 스크립트를 띄우고 프로세스를 종료한다.
  * data/ 는 유지된다.
  */
 export async function applyUpdate(options?: {
   downloadUrl?: string | null;
   targetVersion?: string | null;
+  sha256?: string | null;
 }): Promise<UpdateApplyResult> {
   if (!canApplyUpdate()) {
     throw new Error(
@@ -440,14 +674,18 @@ export async function applyUpdate(options?: {
   const downloadUrl = options?.downloadUrl || check.downloadUrl;
   const toVersion =
     options?.targetVersion || check.latestVersion || "(unknown)";
+  const expectedSha256 =
+    normalizeSha256(options?.sha256) || check.sha256;
   if (!downloadUrl) {
     throw new Error(
-      "다운로드 URL이 없습니다. GitHub Release에 포터블 ZIP이 있는지 확인하세요.",
+      "다운로드 URL이 없습니다. update.json 피드 또는 GitHub Release를 확인하세요.",
     );
   }
   if (!check.updateAvailable && !options?.downloadUrl) {
     throw new Error("이미 최신 버전입니다.");
   }
+
+  const requireChecksum = check.source === "feed" || Boolean(expectedSha256);
 
   mkdirSync(UPDATES_DIR, { recursive: true });
   if (existsSync(EXTRACT_DIR)) {
@@ -458,10 +696,11 @@ export async function applyUpdate(options?: {
   }
 
   await downloadFile(downloadUrl, DOWNLOAD_ZIP);
-  const st = statSync(DOWNLOAD_ZIP);
-  if (st.size < 1024) {
-    throw new Error("다운로드한 ZIP이 비정상적으로 작습니다.");
-  }
+  const actualSha256 = await verifyDownload({
+    expectedSha256,
+    expectedSize: check.size,
+    requireChecksum,
+  });
 
   expandZipWindows(DOWNLOAD_ZIP, EXTRACT_DIR);
   const packageRoot = findPackageRoot(EXTRACT_DIR);
@@ -481,7 +720,8 @@ export async function applyUpdate(options?: {
     ok: true,
     fromVersion,
     toVersion: normalizeVersion(toVersion),
+    sha256: actualSha256,
     message:
-      "업데이트를 적용하고 서버를 다시 시작합니다. 잠시 후 브라우저를 새로고침하세요.",
+      "체크섬 검증 후 업데이트를 적용합니다. 서버가 다시 시작되면 브라우저를 새로고침하세요.",
   };
 }

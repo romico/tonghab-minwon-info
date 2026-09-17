@@ -62,7 +62,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}
-          path: tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+          path: |
+            tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+            update.json
+            update.ini
           if-no-files-found: error
           retention-days: 30
 
@@ -70,7 +73,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+          files: |
+            tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+            update.json
+            update.ini
           generate_release_notes: true
           fail_on_unmatched_files: true
         env:

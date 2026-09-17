@@ -1,0 +1,12 @@
+{
+  "version": "0.1.6",
+  "name": "v0.1.6",
+  "notes": "예시 릴리스 노트",
+  "publishedAt": "2026-09-17T00:00:00.000Z",
+  "downloadUrl": "https://files.example.com/tonghab-minwon-info-windows-portable-v0.1.6.zip",
+  "url": "https://files.example.com/tonghab-minwon-info-windows-portable-v0.1.6.zip",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "size": 52428800,
+  "fileName": "tonghab-minwon-info-windows-portable-v0.1.6.zip",
+  "htmlUrl": "https://github.com/romico/tonghab-minwon-info/releases/tag/v0.1.6"
+}

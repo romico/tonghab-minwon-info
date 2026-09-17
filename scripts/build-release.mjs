@@ -5,6 +5,7 @@
  * - 시작.bat 더블클릭으로 실행
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   createWriteStream,
@@ -13,6 +14,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -88,7 +90,7 @@ mkdirSync(join(outDir, "data"), { recursive: true });
 mkdirSync(join(outDir, "runtime"), { recursive: true });
 writeFileSync(
   join(outDir, "data", "README.txt"),
-  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n\n비공개 GitHub 업데이트용: github-token.txt 에 읽기 전용 PAT를 한 줄로 저장하세요.\n",
+  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n\n업데이트(권장): update-feed.url 파일에 update.json 주소를 한 줄로 저장하세요.\n비공개 GitHub 대안: github-token.txt 에 읽기 전용 PAT를 한 줄로 저장하세요.\n",
   "utf8",
 );
 
@@ -188,8 +190,11 @@ writeFileSync(
 
 ■ 업데이트
   - 설정 → "버전 및 업데이트"에서 최신 버전을 확인하고 적용할 수 있습니다.
+  - 권장: data\\update-feed.url 에 update.json(또는 update.ini) 주소 한 줄을 넣습니다.
+    예) https://files.example.com/tonghab/update.json
+  - 매니페스트에는 version, url, sha256 이 있어야 하며, 다운로드 후 체크섬을 검증합니다.
+  - GitHub Release를 쓰려면 data\\github-token.txt 에 contents:read PAT를 저장하세요.
   - 자동 업데이트는 data 폴더를 유지한 채 앱 파일만 교체합니다.
-  - 비공개 GitHub 저장소: data\\github-token.txt 에 contents:read PAT를 한 줄로 저장
   - 수동 시: 새 ZIP 해제 후 data 폴더를 그대로 옮기세요.
 
 ■ 포트 변경
@@ -227,8 +232,55 @@ const zip = spawnSync("zip", ["-r", "-q", zipOut, "release-win"], {
   stdio: "inherit",
 });
 if (zip.status === 0) {
+  const zipStat = statSync(zipOut);
+  const sha256 = createHash("sha256").update(readFileSync(zipOut)).digest("hex");
+  const publishedAt = new Date().toISOString();
+  const downloadBase = (process.env.TM_UPDATE_DOWNLOAD_BASE ?? "").replace(/\/$/, "");
+  const downloadUrl =
+    process.env.TM_UPDATE_DOWNLOAD_URL?.trim() ||
+    (downloadBase
+      ? `${downloadBase}/${zipName}`
+      : `https://github.com/romico/tonghab-minwon-info/releases/download/v${APP_VERSION}/${zipName}`);
+
+  const manifest = {
+    version: APP_VERSION,
+    name: `v${APP_VERSION}`,
+    notes: process.env.TM_UPDATE_NOTES?.trim() || "",
+    publishedAt,
+    downloadUrl,
+    url: downloadUrl,
+    sha256,
+    size: zipStat.size,
+    fileName: zipName,
+    htmlUrl: `https://github.com/romico/tonghab-minwon-info/releases/tag/v${APP_VERSION}`,
+  };
+
+  const updateJsonPath = join(root, "update.json");
+  const updateIniPath = join(root, "update.ini");
+  writeFileSync(updateJsonPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  writeFileSync(
+    updateIniPath,
+    [
+      "[Update]",
+      `Version=${manifest.version}`,
+      `Name=${manifest.name}`,
+      `URL=${manifest.downloadUrl}`,
+      `SHA256=${manifest.sha256}`,
+      `Size=${manifest.size}`,
+      `FileName=${manifest.fileName}`,
+      `PublishedAt=${manifest.publishedAt}`,
+      `HtmlUrl=${manifest.htmlUrl}`,
+      `Notes=${manifest.notes.replace(/\r?\n/g, " ")}`,
+      "",
+    ].join("\r\n"),
+    "utf8",
+  );
+
   console.log(`\n완료(포터블): ${outDir}`);
   console.log(`ZIP: ${zipOut}`);
+  console.log(`SHA-256: ${sha256}`);
+  console.log(`매니페스트: ${updateJsonPath}`);
+  console.log(`매니페스트: ${updateIniPath}`);
 } else if (process.env.CI) {
   console.error("zip 명령 실패 — CI에서는 ZIP 생성이 필수입니다.");
   process.exit(zip.status ?? 1);

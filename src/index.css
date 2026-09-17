@@ -1103,6 +1103,11 @@ textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.settings-sha {
+  font-size: 11px;
+  word-break: break-all;
+}
+
 
 .settings-recovery {
   padding: 12px;

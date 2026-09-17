@@ -16,9 +16,12 @@ docs/*.xlsx
 data/*.db
 data/*.db-*
 data/github-token.txt
+data/update-feed.url
 
 # Windows portable release
 release-win/
 .cache/
 updates/
 tonghab-minwon-info-windows*.zip
+update.json
+update.ini

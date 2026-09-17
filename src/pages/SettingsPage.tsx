@@ -112,6 +112,7 @@ export function SettingsPage() {
       const result = await apiApplyUpdate({
         downloadUrl: updateInfo.downloadUrl ?? undefined,
         targetVersion: updateInfo.latestVersion ?? undefined,
+        sha256: updateInfo.sha256 ?? undefined,
       });
       setUpdateConfirmOpen(false);
       setUpdateMsg(result.message);
@@ -325,10 +326,10 @@ export function SettingsPage() {
         </div>
         <div className="panel-body settings-panel-body">
           <p className="settings-lead">
-            GitHub Release의 최신 포터블 패키지를 확인합니다. 자동 적용은
-            Windows 포터블에서만 가능하며, <code>data</code> 폴더(민원 DB)는
-            그대로 유지됩니다. 비공개 저장소인 경우{" "}
-            <code>data/github-token.txt</code>에 읽기 전용 PAT를 저장하세요.
+            <code>update.json</code>/<code>update.ini</code> 매니페스트로 최신
+            버전·다운로드 URL·SHA-256을 확인합니다. 권장:{" "}
+            <code>data/update-feed.url</code>에 피드 주소를 한 줄로 저장하세요.
+            다운로드 후 체크섬을 검증하며, <code>data</code> 폴더는 유지됩니다.
           </p>
           {updateErr && <p className="settings-alert is-error">{updateErr}</p>}
           {updateMsg && <p className="settings-alert is-ok">{updateMsg}</p>}
@@ -357,7 +358,30 @@ export function SettingsPage() {
                       : "최신"}
               </strong>
             </div>
+            <div className="settings-stat">
+              <span className="settings-stat-label">출처</span>
+              <strong className="settings-stat-value settings-stat-value-sm">
+                {updateInfo?.source === "feed"
+                  ? "매니페스트"
+                  : updateInfo?.source === "github"
+                    ? "GitHub"
+                    : "—"}
+              </strong>
+            </div>
           </div>
+          {updateInfo?.sha256 && (
+            <p className="settings-help">
+              SHA-256: <code className="settings-sha">{updateInfo.sha256}</code>
+              {typeof updateInfo.size === "number"
+                ? ` · ${(updateInfo.size / (1024 * 1024)).toFixed(1)} MB`
+                : ""}
+            </p>
+          )}
+          {updateInfo?.updateAvailable && !updateInfo.sha256 && (
+            <p className="settings-alert is-error">
+              매니페스트에 sha256이 없어 자동 적용이 차단될 수 있습니다.
+            </p>
+          )}
           {updateInfo?.releaseNotes && (
             <details className="settings-update-notes">
               <summary>릴리스 노트</summary>
@@ -373,7 +397,9 @@ export function SettingsPage() {
             >
               {checkingUpdate ? "확인 중…" : "최신 버전 확인"}
             </button>
-            {updateInfo?.updateAvailable && updateInfo.canApply && (
+            {updateInfo?.updateAvailable &&
+              updateInfo.canApply &&
+              Boolean(updateInfo.sha256) && (
               <button
                 type="button"
                 className="btn btn-primary"
@@ -851,9 +877,8 @@ export function SettingsPage() {
             <h3 id="update-apply-title">업데이트 적용 확인</h3>
             <p>
               v{updateInfo.currentVersion} → v{updateInfo.latestVersion}으로
-              업데이트합니다. 서버가 잠시 재시작되며{" "}
-              <code>data</code> 폴더의 민원 데이터는 유지됩니다. 인터넷에서
-              패키지를 다운로드하므로 수 분이 걸릴 수 있습니다.
+              업데이트합니다. ZIP을 받은 뒤 SHA-256으로 검증하고, 서버가 잠시
+              재시작됩니다. <code>data</code> 폴더의 민원 데이터는 유지됩니다.
             </p>
             <div className="settings-confirm-actions">
               <button

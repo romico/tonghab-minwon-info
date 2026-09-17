@@ -237,10 +237,12 @@ app.post("/api/updates/apply", requireAuth, async (req, res) => {
     const body = (req.body ?? {}) as {
       downloadUrl?: string;
       targetVersion?: string;
+      sha256?: string;
     };
     const result = await applyUpdate({
       downloadUrl: body.downloadUrl,
       targetVersion: body.targetVersion,
+      sha256: body.sha256,
     });
     auditFromReq(req, {
       userId: req.session!.user.id,
@@ -252,6 +254,7 @@ app.post("/api/updates/apply", requireAuth, async (req, res) => {
       detail: {
         fromVersion: result.fromVersion,
         toVersion: result.toVersion,
+        sha256: result.sha256,
       },
     });
     res.json(result);

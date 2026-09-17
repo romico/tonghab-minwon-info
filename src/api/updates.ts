@@ -9,10 +9,13 @@ export interface UpdateCheckResult {
   publishedAt: string | null;
   downloadUrl: string | null;
   htmlUrl: string | null;
+  sha256: string | null;
+  size: number | null;
   portable: boolean;
   canApply: boolean;
   checkedAt: string;
   source: "github" | "feed" | "none";
+  feedUrl: string | null;
   error?: string;
 }
 
@@ -20,6 +23,7 @@ export interface UpdateApplyResult {
   ok: true;
   fromVersion: string;
   toVersion: string;
+  sha256: string | null;
   message: string;
 }
 
@@ -39,6 +43,7 @@ export async function apiCheckUpdate(): Promise<UpdateCheckResult> {
 export async function apiApplyUpdate(input?: {
   downloadUrl?: string;
   targetVersion?: string;
+  sha256?: string;
 }): Promise<UpdateApplyResult> {
   return apiRequest<UpdateApplyResult>("/api/updates/apply", {
     method: "POST",
