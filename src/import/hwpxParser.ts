@@ -9,6 +9,7 @@ import {
   type FieldCode,
   type ProcessStatus,
 } from "@/schema";
+import { buildImportKeyFromCard } from "@/import/importMatch";
 
 export interface HwpxImportDraft extends ComplaintInput {
   sourceFileName: string;
@@ -188,12 +189,20 @@ function matchDepartment(raw: string, dongHint: string | null): string {
 
 function inferProcessStatus(tokens: string[]): ProcessStatus {
   const joined = tokens.join(" ");
-  if (/종결|처리완료|완료/.test(joined) && !/추진중\s*[․·]\s*종결/.test(joined)) {
-    // template contains both; only mark DONE if explicit exclusive marker exists
-  }
   // 양식 기본 문구 "추진중 ․ 종결 ․ 불가 등"은 무시
-  if (/처리불가|불가(?!\s*등)/.test(joined) && !/추진중/.test(joined)) {
+  const cleaned = joined.replace(
+    /추진중\s*[․·\.]\s*종결\s*[․·\.]\s*불가(?:\s*등)?/g,
+    " ",
+  );
+  if (/처리불가|불가(?!\s*등)/.test(cleaned) && !/추진중|처리예정/.test(cleaned)) {
     return "IMPOSSIBLE";
+  }
+  if (
+    /처리완료|완료처리|조치완료|종결\s*처리|(처리결과|처리상태|진행상태)[^\n]{0,24}(완료|종결)/.test(
+      cleaned,
+    )
+  ) {
+    return "DONE";
   }
   return "SCHEDULED";
 }
@@ -231,14 +240,27 @@ async function extractAllImages(
 
     let url: string;
     try {
-      url = await compressImage(blob, 720, 0.72);
+      url = await compressImage(blob, {
+        maxEdge: 640,
+        quality: 0.55,
+        maxBytes: 90_000,
+      });
     } catch {
-      let binary = "";
-      const chunk = 0x8000;
-      for (let j = 0; j < buf.length; j += chunk) {
-        binary += String.fromCharCode(...buf.subarray(j, j + chunk));
+      // 압축 실패 시에도 원본 대신 최소 JPEG 재시도
+      try {
+        url = await compressImage(blob, {
+          maxEdge: 480,
+          quality: 0.4,
+          maxBytes: 60_000,
+        });
+      } catch {
+        let binary = "";
+        const chunk = 0x8000;
+        for (let j = 0; j < buf.length; j += chunk) {
+          binary += String.fromCharCode(...buf.subarray(j, j + chunk));
+        }
+        url = `data:${mime};base64,${btoa(binary)}`;
       }
-      url = `data:${mime};base64,${btoa(binary)}`;
     }
 
     const caption = captions[i] ?? null;
@@ -296,36 +318,56 @@ function defaultPhotoLabel(
   return total > 1 ? `현장사진 ${index + 1}` : "현장사진";
 }
 
+type CompressOptions = {
+  maxEdge: number;
+  quality: number;
+  /** data URL 문자열 길이 상한(대략 base64 포함). 넘으면 품질/크기를 더 줄인다. */
+  maxBytes?: number;
+};
+
 function compressImage(
   blob: Blob,
-  maxWidth: number,
-  quality: number,
+  options: CompressOptions,
 ): Promise<string> {
+  const { maxEdge, quality, maxBytes = 120_000 } = options;
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob);
+    const objectUrl = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, maxWidth / img.width);
-      const w = Math.max(1, Math.round(img.width * scale));
-      const h = Math.max(1, Math.round(img.height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        URL.revokeObjectURL(url);
-        reject(new Error("canvas"));
-        return;
+      try {
+        // 긴 변 기준으로 축소 (기존은 width만 봐서 세로 사진이 거의 안 줄어듦)
+        const longEdge = Math.max(img.width, img.height) || 1;
+        let scale = Math.min(1, maxEdge / longEdge);
+        let q = quality;
+        let dataUrl = "";
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("canvas");
+          ctx.drawImage(img, 0, 0, w, h);
+          dataUrl = canvas.toDataURL("image/jpeg", q);
+          if (dataUrl.length <= maxBytes) break;
+          scale *= 0.82;
+          q = Math.max(0.35, q - 0.08);
+        }
+
+        URL.revokeObjectURL(objectUrl);
+        resolve(dataUrl);
+      } catch (err) {
+        URL.revokeObjectURL(objectUrl);
+        reject(err);
       }
-      ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", quality));
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objectUrl);
       reject(new Error("image load"));
     };
-    img.src = url;
+    img.src = objectUrl;
   });
 }
 
@@ -365,16 +407,23 @@ function buildDraftFromTokens(
   const location = locationMatch?.[1]?.trim() || null;
 
   const contentParts: string[] = [];
-  if (title) contentParts.push(title.trim());
+  const cleanTitle = title
+    .replace(/코드\s*번호/g, " ")
+    .replace(/제\s*목/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleanTitle) contentParts.push(cleanTitle);
   const detail =
     bodyBlock
       .replace(/○\s*위\s*치\s*[:：][^\n○]*/g, "")
       .replace(/○\s*위치\s*[:：][^\n○]*/g, "")
+      .replace(/코드\s*번호/g, " ")
+      .replace(/제\s*목/g, " ")
       .replace(/\s+/g, " ")
-      .trim() || title;
-  if (detail && detail !== title) contentParts.push(detail);
+      .trim() || cleanTitle;
+  if (detail && detail !== cleanTitle) contentParts.push(detail);
   const content = contentParts.join(" — ") || "(내용 없음)";
-  if (!title) warnings.push("제목을 찾지 못했습니다.");
+  if (!cleanTitle) warnings.push("제목을 찾지 못했습니다.");
 
   const deptRaw =
     afterLabel(tokens, ["담당기관", "담당 기관", "담당부서", "담당 부서"]) || "";
@@ -413,26 +462,35 @@ function buildDraftFromTokens(
 
   const today = new Date().toISOString().slice(0, 10);
   const synced = syncPhotoFields(photos);
+  const processStatus = inferProcessStatus(tokens);
+  const received = receivedAt ?? today;
+  const importKey = buildImportKeyFromCard({
+    receivedAt: received,
+    content,
+    complainantPhone: phone,
+    location,
+  });
 
   return {
     sourceFileName,
     parseWarnings: warnings,
     selected: true,
     receiptRouteCode: routeCode,
-    receivedAt: receivedAt ?? today,
-    notifiedAt: receivedAt ?? today,
+    receivedAt: received,
+    notifiedAt: received,
     complainantName: name,
     complainantPhone: phone,
     fieldCode,
     content,
     location,
     ...synced,
-    processStatus: inferProcessStatus(tokens),
-    completedOrDueAt: null,
+    processStatus,
+    completedOrDueAt: processStatus === "DONE" ? received : null,
     pendingReason: null,
     departmentId,
     assigneeName: assigneeRaw,
     remark: deptRaw ? `원본담당: ${deptRaw}` : null,
+    importKey,
   };
 }
 

@@ -2,6 +2,21 @@
   "source": "CHANGELOG.md",
   "entries": [
     {
+      "version": "0.1.15",
+      "date": "2026-09-17",
+      "added": [
+        "DB 아카이브 전환·보관본 복원(민원 병합 / 통째 교체)·보관본 삭제(2FA)",
+        "설정 화면 DB 용량·VACUUM, HWPX 백그라운드 등록·진행 배너",
+        "관리대장 페이징, 동일 카드 fingerprint 갱신"
+      ],
+      "changed": [
+        "HWPX 사진 압축 강화(긴 변 640px), 목록 API 사진 본문 제외"
+      ],
+      "fixed": [
+        "사진 리사이즈를 긴 변 기준으로 통일"
+      ]
+    },
+    {
       "version": "0.1.14",
       "date": "2026-09-17",
       "added": [

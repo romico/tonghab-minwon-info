@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DEPARTMENTS,
   FIELD_OPTIONS,
@@ -16,25 +16,41 @@ import { PhotoGallery } from "@/components/PhotoGallery";
 import { useComplaintStore } from "@/store/ComplaintStore";
 
 type ProgressState = {
-  phase: "parse" | "register";
+  phase: "parse";
   current: number;
   total: number;
   detail: string;
 };
 
 export function HwpxImportPanel() {
-  const { addComplaints } = useComplaintStore();
+  const { importJob, startImportJob } = useComplaintStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const [drafts, setDrafts] = useState<HwpxImportDraft[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"ok" | "error">("ok");
   const [progress, setProgress] = useState<ProgressState | null>(null);
 
+  const importRunning = importJob.status === "running";
+  const busy = parsing || importRunning;
+
+  // 등록 시작 안내는 잡이 끝나면 바로 지운다 (결과는 상단 ImportJobBanner가 담당).
+  useEffect(() => {
+    if (importJob.status === "running") return;
+    setMessage((prev) =>
+      prev && /백그라운드 등록/.test(prev) ? null : prev,
+    );
+  }, [importJob.status]);
+
   async function onFilesSelected(files: FileList | null) {
     if (!files?.length) return;
-    setBusy(true);
+    if (importRunning) {
+      setMessageTone("error");
+      setMessage("백그라운드 등록이 끝난 뒤 새 파일을 선택하세요.");
+      return;
+    }
+    setParsing(true);
     setMessage(null);
     setProgress({
       phase: "parse",
@@ -58,7 +74,7 @@ export function HwpxImportPanel() {
         setMessage("파싱된 항목이 없습니다.");
       }
     } finally {
-      setBusy(false);
+      setParsing(false);
       setProgress(null);
       if (inputRef.current) inputRef.current.value = "";
     }
@@ -70,57 +86,41 @@ export function HwpxImportPanel() {
     );
   }
 
-  async function registerSelected() {
+  function registerSelected() {
     const selected = drafts.filter((d) => d.selected);
     if (selected.length === 0) {
       setMessageTone("error");
       setMessage("등록할 항목을 선택하세요.");
       return;
     }
-    setBusy(true);
-    setMessage(null);
-    setProgress({
-      phase: "register",
-      current: 0,
-      total: selected.length,
-      detail: "등록 준비…",
-    });
-    try {
-      const count = await addComplaints(
-        selected.map(
-          ({
-            sourceFileName: _s,
-            parseWarnings: _w,
-            selected: _sel,
-            ...input
-          }) => input,
-        ),
-        (done, total) => {
-          setProgress({
-            phase: "register",
-            current: done,
-            total,
-            detail:
-              done >= total
-                ? "등록 완료"
-                : `등록 중 · ${done}/${total}건`,
-          });
-        },
-      );
-      setMessageTone("ok");
-      setMessage(`${count}건을 관리대장에 등록했습니다.`);
-      setDrafts([]);
-      setErrors([]);
-    } catch (err) {
-      console.error(err);
+    if (importRunning) {
       setMessageTone("error");
-      setMessage(
-        err instanceof Error ? err.message : "등록에 실패했습니다.",
-      );
-    } finally {
-      setBusy(false);
-      setProgress(null);
+      setMessage("이미 백그라운드 등록이 진행 중입니다.");
+      return;
     }
+
+    const started = startImportJob(
+      selected.map(
+        ({
+          sourceFileName: _s,
+          parseWarnings: _w,
+          selected: _sel,
+          ...input
+        }) => input,
+      ),
+    );
+    if (!started) {
+      setMessageTone("error");
+      setMessage("등록을 시작할 수 없습니다. 잠시 후 다시 시도하세요.");
+      return;
+    }
+
+    setDrafts([]);
+    setErrors([]);
+    setMessageTone("ok");
+    setMessage(
+      `${selected.length}건 등록을 시작했습니다. 진행 상황은 상단 배너를 확인하세요.`,
+    );
   }
 
   const progressPct =
@@ -147,18 +147,16 @@ export function HwpxImportPanel() {
             disabled={busy}
             onClick={() => inputRef.current?.click()}
           >
-            {busy && progress?.phase === "parse"
-              ? "분석 중…"
-              : "민원파일 선택"}
+            {parsing ? "분석 중…" : "민원파일 선택"}
           </button>
           {drafts.length > 0 && (
             <button
               type="button"
               className="btn btn-primary"
               disabled={busy}
-              onClick={() => void registerSelected()}
+              onClick={registerSelected}
             >
-              {busy && progress?.phase === "register"
+              {importRunning
                 ? "등록 중…"
                 : `선택 항목 등록 (${drafts.filter((d) => d.selected).length})`}
             </button>
@@ -169,15 +167,17 @@ export function HwpxImportPanel() {
       <div style={{ padding: "12px 18px", fontSize: 13, color: "var(--muted)" }}>
         시민불편 관리카드 양식을 선택하면 제목·일자·위치·부서와
         첨부 이미지(여러 장)를 모두 추출합니다. 미리보기에서 사진 역할(현장/처리전·후)을 바꿀 수 있습니다.
-        여러 파일은 한 건씩 등록되어 용량 제한을 피합니다.
+        여러 파일은 한 건씩 백그라운드 등록되며, 등록 중에도 다른 화면으로 이동할 수 있습니다.
+        여러 파일은 한 건씩 백그라운드 등록되며, 등록 중에도 다른 화면으로 이동할 수 있습니다.
+        동일 카드는 접수일·민원내용·연락처·위치가 같으면 기존 민원을 갱신합니다.
+        (관리번호·파일명은 형식이 제각각이거나 임의 변경될 수 있어 판별에 사용하지 않습니다.)
+        첨부 사진은 JPEG로 압축·축소(긴 변 최대 640px)해 저장합니다.
       </div>
 
       {progress && (
         <div className="hwpx-progress" aria-live="polite">
           <div className="hwpx-progress-meta">
-            <span>
-              {progress.phase === "parse" ? "파일 분석" : "관리대장 등록"}
-            </span>
+            <span>파일 분석</span>
             <span>
               {progress.current}/{progress.total} · {progressPct}%
             </span>

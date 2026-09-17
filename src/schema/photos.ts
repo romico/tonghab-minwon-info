@@ -64,3 +64,30 @@ export function photoRoleLabel(role: ComplaintPhoto["role"]): string {
       return "기타";
   }
 }
+
+/** 목록/메모리용: data URL 등 무거운 이미지 본문을 제거한다. */
+export function stripComplaintMedia(c: Complaint): Complaint {
+  const photos = (c.photos ?? []).map((p) => ({
+    ...p,
+    url: "",
+  }));
+  return {
+    ...c,
+    photos,
+    photoReceiptUrl: null,
+    photoBeforeUrl: null,
+    photoAfterUrl: null,
+  };
+}
+
+export function complaintHasMedia(c: Pick<Complaint, "photos" | "photoReceiptUrl" | "photoBeforeUrl" | "photoAfterUrl">): boolean {
+  if ((c.photos ?? []).length > 0) return true;
+  return Boolean(c.photoReceiptUrl || c.photoBeforeUrl || c.photoAfterUrl);
+}
+
+export function complaintMediaLoaded(
+  c: Pick<Complaint, "photos" | "photoReceiptUrl" | "photoBeforeUrl" | "photoAfterUrl">,
+): boolean {
+  if ((c.photos ?? []).some((p) => Boolean(p.url))) return true;
+  return Boolean(c.photoReceiptUrl || c.photoBeforeUrl || c.photoAfterUrl);
+}

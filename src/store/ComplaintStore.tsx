@@ -16,11 +16,13 @@ import {
   apiResetSeed,
   apiUpsertComplaint,
 } from "@/api/complaints";
+import { resolveImportInput } from "@/import/importMatch";
 import {
   buildDailyReport,
   buildDepartmentStatus,
   buildSummaryReport,
   normalizeComplaint,
+  stripComplaintMedia,
   type Complaint,
   type ComplaintInput,
   type DailyReport,
@@ -70,6 +72,37 @@ function inNotifiedPeriod(
   return true;
 }
 
+export type ImportJobStatus =
+  | "idle"
+  | "running"
+  | "done"
+  | "error"
+  | "cancelled";
+
+export type ImportJobState = {
+  status: ImportJobStatus;
+  current: number;
+  total: number;
+  created: number;
+  updated: number;
+  detail: string;
+  message: string | null;
+  error: string | null;
+  startedAt: number | null;
+};
+
+const IDLE_IMPORT_JOB: ImportJobState = {
+  status: "idle",
+  current: 0,
+  total: 0,
+  created: 0,
+  updated: 0,
+  detail: "",
+  message: null,
+  error: null,
+  startedAt: null,
+};
+
 interface StoreValue {
   complaints: Complaint[];
   filteredComplaints: Complaint[];
@@ -89,7 +122,12 @@ interface StoreValue {
   addComplaints: (
     inputs: ComplaintInput[],
     onProgress?: (done: number, total: number) => void,
-  ) => Promise<number>;
+  ) => Promise<{ count: number; created: number; updated: number }>;
+  /** 페이지 이동과 무관하게 건별 등록을 이어가는 백그라운드 job */
+  importJob: ImportJobState;
+  startImportJob: (inputs: ComplaintInput[]) => boolean;
+  cancelImportJob: () => void;
+  dismissImportJob: () => void;
   deleteComplaint: (id: string) => Promise<void>;
   resetSeed: (password: string, totpCode?: string) => Promise<void>;
   departmentStatus: DepartmentStatusRow[];
@@ -109,7 +147,39 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
   );
   const [periodTo, setPeriodToState] = useState(() => loadPeriod(PERIOD_TO_KEY));
   const [periodLoading, setPeriodLoading] = useState(false);
+  const [importJob, setImportJob] = useState<ImportJobState>(IDLE_IMPORT_JOB);
   const periodLoadTimer = useRef<number | null>(null);
+  const complaintsRef = useRef<Complaint[]>([]);
+  const importRunningRef = useRef(false);
+  const importCancelRef = useRef(false);
+  complaintsRef.current = complaints;
+
+  const applySavedComplaint = useCallback((item: Complaint) => {
+    setComplaints((prev) => {
+      const exists = prev.some((c) => c.id === item.id);
+      const next = exists
+        ? prev.map((c) => (c.id === item.id ? item : c))
+        : [...prev, item];
+      complaintsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const registerOneComplaint = useCallback(
+    async (input: ComplaintInput) => {
+      const resolved = resolveImportInput(complaintsRef.current, input);
+      const items = await apiAddComplaints([resolved.input]);
+      const raw = items[0];
+      if (!raw?.id) {
+        throw new Error("등록 응답에 민원 ID가 없습니다.");
+      }
+      // 목록 상태에는 사진 본문을 넣지 않아 대량 등록 시 메모리 폭주를 막는다.
+      const item = stripComplaintMedia(normalizeComplaint(raw));
+      applySavedComplaint(item);
+      return { item, action: resolved.action as "create" | "update" };
+    },
+    [applySavedComplaint],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -219,30 +289,156 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
 
   const upsertComplaint = useCallback(async (input: ComplaintInput) => {
     const item = await apiUpsertComplaint(input);
-    setComplaints((prev) => {
-      const exists = prev.some((c) => c.id === item.id);
-      return exists
-        ? prev.map((c) => (c.id === item.id ? item : c))
-        : [...prev, item];
-    });
-  }, []);
+    applySavedComplaint(item);
+  }, [applySavedComplaint]);
 
   const addComplaints = useCallback(
     async (
       inputs: ComplaintInput[],
       onProgress?: (done: number, total: number) => void,
     ) => {
-      // 사진 base64 포함 시 일괄 JSON이 서버 limit을 넘기기 쉬워 건별 등록한다.
-      const created: Complaint[] = [];
+      let created = 0;
+      let updated = 0;
+      const saved: Complaint[] = [];
       for (let i = 0; i < inputs.length; i++) {
-        const items = await apiAddComplaints([inputs[i]!]);
-        created.push(...items);
-        setComplaints((prev) => [...prev, ...items]);
+        const { item, action } = await registerOneComplaint(inputs[i]!);
+        saved.push(item);
+        if (action === "update") updated += 1;
+        else created += 1;
         onProgress?.(i + 1, inputs.length);
       }
-      return created.length;
+      return { count: saved.length, created, updated };
     },
-    [],
+    [registerOneComplaint],
+  );
+
+  const dismissImportJob = useCallback(() => {
+    if (importRunningRef.current) return;
+    setImportJob(IDLE_IMPORT_JOB);
+  }, []);
+
+  const cancelImportJob = useCallback(() => {
+    if (!importRunningRef.current) return;
+    importCancelRef.current = true;
+    setImportJob((prev) =>
+      prev.status === "running"
+        ? { ...prev, detail: "취소 요청… 현재 건 처리 후 중단합니다." }
+        : prev,
+    );
+  }, []);
+
+  const startImportJob = useCallback(
+    (inputs: ComplaintInput[]) => {
+      if (importRunningRef.current) return false;
+      if (inputs.length === 0) return false;
+
+      importRunningRef.current = true;
+      importCancelRef.current = false;
+      const startedAt = Date.now();
+      setImportJob({
+        status: "running",
+        current: 0,
+        total: inputs.length,
+        created: 0,
+        updated: 0,
+        detail: "등록 준비…",
+        message: null,
+        error: null,
+        startedAt,
+      });
+
+      void (async () => {
+        let created = 0;
+        let updated = 0;
+        let done = 0;
+        try {
+          for (let i = 0; i < inputs.length; i++) {
+            if (importCancelRef.current) {
+              const parts = [`${done}/${inputs.length}건 반영 후 취소`];
+              if (created > 0) parts.push(`신규 ${created}`);
+              if (updated > 0) parts.push(`갱신 ${updated}`);
+              setImportJob({
+                status: "cancelled",
+                current: done,
+                total: inputs.length,
+                created,
+                updated,
+                detail: "등록 취소됨",
+                message: parts.join(" · "),
+                error: null,
+                startedAt,
+              });
+              return;
+            }
+
+            const { action } = await registerOneComplaint(inputs[i]!);
+            if (action === "update") updated += 1;
+            else created += 1;
+            done = i + 1;
+            const remaining = inputs.length - done;
+            setImportJob({
+              status: "running",
+              current: done,
+              total: inputs.length,
+              created,
+              updated,
+              detail:
+                remaining > 0
+                  ? `남은 ${remaining}건`
+                  : "마지막 건 반영 완료",
+              message: null,
+              error: null,
+              startedAt,
+            });
+          }
+
+          const parts = [`총 ${inputs.length}건 처리`];
+          if (created > 0) parts.push(`신규 ${created}`);
+          if (updated > 0) parts.push(`갱신 ${updated}`);
+          try {
+            const list = await apiListComplaints();
+            setComplaints(list);
+            complaintsRef.current = list;
+          } catch (refreshErr) {
+            console.warn("등록 후 목록 새로고침 실패", refreshErr);
+          }
+          const visible = complaintsRef.current.length;
+          setImportJob({
+            status: "done",
+            current: inputs.length,
+            total: inputs.length,
+            created,
+            updated,
+            detail: "등록 완료",
+            message: `${parts.join(" · ")} · 대장 ${visible}건 확인됨`,
+            error: null,
+            startedAt,
+          });
+        } catch (err) {
+          console.error(err);
+          setImportJob({
+            status: "error",
+            current: done,
+            total: inputs.length,
+            created,
+            updated,
+            detail: "등록 중단",
+            message: null,
+            error:
+              err instanceof Error
+                ? err.message
+                : "백그라운드 등록에 실패했습니다.",
+            startedAt,
+          });
+        } finally {
+          importRunningRef.current = false;
+          importCancelRef.current = false;
+        }
+      })();
+
+      return true;
+    },
+    [registerOneComplaint],
   );
 
   const deleteComplaint = useCallback(async (id: string) => {
@@ -285,6 +481,10 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
       periodLoading,
       upsertComplaint,
       addComplaints,
+      importJob,
+      startImportJob,
+      cancelImportJob,
+      dismissImportJob,
       deleteComplaint,
       resetSeed,
       departmentStatus,
@@ -307,6 +507,10 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
       periodLoading,
       upsertComplaint,
       addComplaints,
+      importJob,
+      startImportJob,
+      cancelImportJob,
+      dismissImportJob,
       deleteComplaint,
       resetSeed,
       departmentStatus,

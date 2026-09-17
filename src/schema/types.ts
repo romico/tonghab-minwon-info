@@ -101,6 +101,11 @@ export interface Complaint {
   photos: ComplaintPhoto[];
   remark: string | null;
   dongCode: string | null;
+  /**
+   * HWPX 등 가져오기 동일 카드 식별 키.
+   * 같은 키로 재등록하면 기존 건을 갱신한다.
+   */
+  importKey: string | null;
 }
 
 export type ComplaintInput = Omit<Complaint, "id" | "receiptRouteGroup" | "dongCode"> & {

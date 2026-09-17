@@ -15,6 +15,7 @@ docs/*.xlsx
 # SQLite
 data/*.db
 data/*.db-*
+data/archives/
 data/github-token.txt
 data/update-feed.url
 

@@ -14,6 +14,10 @@ export type AuditAction =
   | "COMPLAINT_BATCH_CREATE"
   | "COMPLAINT_REPLACE"
   | "COMPLAINT_RESET_SEED"
+  | "DB_ARCHIVE_ROLLOVER"
+  | "DB_ARCHIVE_RESTORE_MERGE"
+  | "DB_ARCHIVE_RESTORE_REPLACE"
+  | "DB_ARCHIVE_DELETE"
   | "SNAPSHOT_FREEZE"
   | "UPDATE_APPLY";
 
@@ -47,6 +51,10 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   COMPLAINT_BATCH_CREATE: "민원 일괄등록",
   COMPLAINT_REPLACE: "민원 전체교체",
   COMPLAINT_RESET_SEED: "DB 초기화",
+  DB_ARCHIVE_ROLLOVER: "DB 아카이브 전환",
+  DB_ARCHIVE_RESTORE_MERGE: "DB 보관본 민원 병합",
+  DB_ARCHIVE_RESTORE_REPLACE: "DB 보관본 통째 교체",
+  DB_ARCHIVE_DELETE: "DB 보관본 삭제",
   SNAPSHOT_FREEZE: "보고 스냅샷 확정",
   UPDATE_APPLY: "앱 업데이트",
 };

@@ -6,7 +6,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | 0.1.14 ([변경 이력](./CHANGELOG.md)) |
+| 버전 | 0.1.15 ([변경 이력](./CHANGELOG.md)) |
 | 기본 계정 | `admin` / `admin` |
 | 개발 UI | http://localhost:5173 |
 | API / 프로덕션 | http://127.0.0.1:8787 |
@@ -15,13 +15,14 @@
 
 ## 주요 기능
 
-- **관리대장** — 민원 CRUD, HWPX(민원카드) 가져오기, 사진 첨부, 개인정보 마스킹 엑셀
+- **관리대장** — 민원 CRUD, HWPX(민원카드) 가져오기·백그라운드 등록, 사진 첨부, 개인정보 마스킹 엑셀
 - **부서별현황 · 총괄표 · 일일보고** — 관리대장 기반 파생 집계 (중복 저장 없음)
 - **대시보드** — KPI, 추이, 처리 상태·부서 업무량, 통합 엑셀 다운로드
-- **감사로그** — 로그인·설정·민원 변경 이력
-- **설정** — 세션 유효시간, 비밀번호 변경, DB 샘플 초기화
+- **감사로그** — 로그인·설정·민원·아카이브 변경 이력
+- **설정** — 세션 TTL, 비밀번호·2FA, DB 용량·VACUUM, **아카이브 전환·보관본 복원**, DB 샘플 초기화
 
-화면 스냅샷: [`docs/site-snapshots/`](./docs/site-snapshots/README.md)
+화면 스냅샷: [`docs/site-snapshots/`](./docs/site-snapshots/README.md)  
+저장·용량 정책: [`docs/storage-scaling-decision.md`](./docs/storage-scaling-decision.md) · [`docs/photo-hwpx-policy.md`](./docs/photo-hwpx-policy.md)
 
 ---
 

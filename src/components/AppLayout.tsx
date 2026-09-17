@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { ImportJobBanner } from "@/components/ImportJobBanner";
 import { PeriodLoadingOverlay } from "@/components/PeriodLoadingOverlay";
 import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
@@ -157,6 +158,7 @@ export function AppLayout() {
       </aside>
 
       <main className="main">
+        <ImportJobBanner />
         {showPeriodFilters && (
           <div className="page-header global-filters">
             <div className="toolbar period-search">

@@ -24,16 +24,25 @@ import {
 } from "./auth.ts";
 import {
   addComplaints,
+  archiveAndClearComplaints,
   complaintExists,
   DB_PATH,
+  deleteArchiveFile,
   deleteComplaint,
+  getArchiveInfo,
   getComplaint,
+  getDbStorageInfo,
+  compactDb,
   initDb,
   listComplaints,
+  listComplaintsLite,
   replaceAll,
   resetSeed,
+  restoreArchiveMergeComplaints,
+  restoreArchiveReplace,
   upsertComplaint,
 } from "./db.ts";
+import { stripComplaintMedia } from "../src/schema/index.ts";
 import {
   freezeSnapshot,
   getLatestSnapshotForDate,
@@ -208,13 +217,248 @@ function auditComplaintMutation(
 }
 
 app.get("/api/health", (_req, res) => {
+  const storage = getDbStorageInfo();
   res.json({
     ok: true,
-    db: DB_PATH,
+    db: storage.dbPath,
     version: getCurrentVersion(),
     portable: isPortableInstall(),
+    storage,
   });
 });
+
+app.get("/api/storage", requireAuth, (_req, res) => {
+  res.json({ storage: getDbStorageInfo() });
+});
+
+app.post("/api/storage/compact", requireAuth, (req, res) => {
+  const before = getDbStorageInfo();
+  const result = compactDb();
+  const after = getDbStorageInfo();
+  auditFromReq(req, {
+    userId: req.session!.user.id,
+    username: req.session!.user.username,
+    action: "SETTINGS_UPDATE",
+    resourceType: "settings",
+    summary: `DB 용량 회수(VACUUM) ${formatAuditBytes(result.beforeBytes)} → ${formatAuditBytes(result.afterBytes)}`,
+    detail: {
+      beforeBytes: result.beforeBytes,
+      afterBytes: result.afterBytes,
+      complaintCount: after.complaintCount,
+    },
+  });
+  res.json({
+    ok: true,
+    beforeBytes: result.beforeBytes,
+    afterBytes: result.afterBytes,
+    storage: after,
+    previous: before,
+  });
+});
+
+app.post("/api/storage/archive-rollover", requireAuth, (req, res) => {
+  const password =
+    typeof req.body?.password === "string" ? req.body.password : "";
+  const totpCode =
+    typeof req.body?.totpCode === "string" ? req.body.totpCode : undefined;
+  const label =
+    typeof req.body?.label === "string" ? req.body.label : undefined;
+  if (!verifyUserPassword(req.session!.user.id, password)) {
+    res.status(401).json({ error: "비밀번호가 올바르지 않습니다." });
+    return;
+  }
+  try {
+    assertTotpIfEnabled(req.session!.user.id, totpCode);
+  } catch (err) {
+    res.status(401).json({
+      error: err instanceof Error ? err.message : "2단계 인증이 필요합니다.",
+    });
+    return;
+  }
+
+  try {
+    const result = archiveAndClearComplaints(label);
+    const storage = getDbStorageInfo();
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "DB_ARCHIVE_ROLLOVER",
+      resourceType: "storage",
+      resourceId: result.label,
+      summary: `DB 아카이브 전환: ${result.archiveFileName} (민원 ${result.archivedComplaintCount}건 보관, 활성 민원 비움)`,
+      detail: {
+        label: result.label,
+        archivePath: result.archivePath,
+        archiveFileName: result.archiveFileName,
+        archivedComplaintCount: result.archivedComplaintCount,
+        beforeBytes: result.beforeBytes,
+        afterBytes: result.afterBytes,
+        keptSnapshots: true,
+        keptAuditLogs: true,
+        keptUsers: true,
+      },
+    });
+    res.json({
+      ok: true,
+      ...result,
+      storage,
+    });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "아카이브 전환에 실패했습니다.",
+    });
+  }
+});
+
+app.get("/api/storage/archives/:name", requireAuth, (req, res) => {
+  try {
+    const info = getArchiveInfo(String(req.params.name));
+    res.json({ archive: info });
+  } catch (err) {
+    res.status(404).json({
+      error: err instanceof Error ? err.message : "보관본을 찾을 수 없습니다.",
+    });
+  }
+});
+
+app.post("/api/storage/archive-delete", requireAuth, (req, res) => {
+  const password =
+    typeof req.body?.password === "string" ? req.body.password : "";
+  const totpCode =
+    typeof req.body?.totpCode === "string" ? req.body.totpCode : undefined;
+  const fileName =
+    typeof req.body?.fileName === "string" ? req.body.fileName : "";
+
+  if (!verifyUserPassword(req.session!.user.id, password)) {
+    res.status(401).json({ error: "비밀번호가 올바르지 않습니다." });
+    return;
+  }
+  try {
+    assertTotpIfEnabled(req.session!.user.id, totpCode);
+  } catch (err) {
+    res.status(401).json({
+      error: err instanceof Error ? err.message : "2단계 인증이 필요합니다.",
+    });
+    return;
+  }
+  if (!fileName) {
+    res.status(400).json({ error: "보관본 파일명이 필요합니다." });
+    return;
+  }
+
+  try {
+    const result = deleteArchiveFile(fileName);
+    const storage = getDbStorageInfo();
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "DB_ARCHIVE_DELETE",
+      resourceType: "storage",
+      resourceId: result.archiveFileName,
+      summary: `보관본 삭제: ${result.archiveFileName} (민원 ${result.complaintCount}건 · ${formatAuditBytes(result.bytes)})`,
+      detail: { ...result },
+    });
+    res.json({
+      ok: true,
+      ...result,
+      storage,
+    });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "보관본 삭제에 실패했습니다.",
+    });
+  }
+});
+
+app.post("/api/storage/archive-restore", requireAuth, (req, res) => {
+  const password =
+    typeof req.body?.password === "string" ? req.body.password : "";
+  const totpCode =
+    typeof req.body?.totpCode === "string" ? req.body.totpCode : undefined;
+  const fileName =
+    typeof req.body?.fileName === "string" ? req.body.fileName : "";
+  const mode = req.body?.mode === "replace" ? "replace" : "merge";
+  const archivePassword =
+    typeof req.body?.archivePassword === "string"
+      ? req.body.archivePassword
+      : undefined;
+
+  if (!verifyUserPassword(req.session!.user.id, password)) {
+    res.status(401).json({ error: "비밀번호가 올바르지 않습니다." });
+    return;
+  }
+  try {
+    assertTotpIfEnabled(req.session!.user.id, totpCode);
+  } catch (err) {
+    res.status(401).json({
+      error: err instanceof Error ? err.message : "2단계 인증이 필요합니다.",
+    });
+    return;
+  }
+  if (!fileName) {
+    res.status(400).json({ error: "보관본 파일명이 필요합니다." });
+    return;
+  }
+
+  try {
+    if (mode === "merge") {
+      const result = restoreArchiveMergeComplaints(fileName, archivePassword);
+      const storage = getDbStorageInfo();
+      auditFromReq(req, {
+        userId: req.session!.user.id,
+        username: req.session!.user.username,
+        action: "DB_ARCHIVE_RESTORE_MERGE",
+        resourceType: "storage",
+        resourceId: result.archiveFileName,
+        summary: `보관본 민원 병합: ${result.archiveFileName} (${result.imported}/${result.total}건)`,
+        detail: { ...result, mode: "merge" },
+      });
+      res.json({
+        ok: true,
+        mode: "merge" as const,
+        requiresRelogin: false,
+        ...result,
+        storage,
+      });
+      return;
+    }
+
+    const result = restoreArchiveReplace(fileName);
+    // 세션·Vault가 보관본 기준으로 바뀌므로 재로그인 필요
+    const storage = getDbStorageInfo();
+    // 감사는 교체된 DB에 기록 (보관본 쪽 audit 테이블)
+    try {
+      auditFromReq(req, {
+        userId: req.session!.user.id,
+        username: req.session!.user.username,
+        action: "DB_ARCHIVE_RESTORE_REPLACE",
+        resourceType: "storage",
+        resourceId: result.archiveFileName,
+        summary: `보관본 통째 교체: ${result.archiveFileName} (이전 활성 → ${result.backupFileName})`,
+        detail: { ...result, mode: "replace" },
+      });
+    } catch {
+      /* 감사 실패해도 복원은 완료 */
+    }
+    res.json({
+      ok: true,
+      mode: "replace" as const,
+      requiresRelogin: true,
+      ...result,
+      storage,
+    });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "보관본 복원에 실패했습니다.",
+    });
+  }
+});
+
+function formatAuditBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
 
 app.get("/api/version", (_req, res) => {
   res.json({
@@ -729,7 +973,18 @@ app.post("/api/reports/snapshots", requireAuth, (req, res) => {
 });
 
 app.get("/api/complaints", requireAuth, (_req, res) => {
-  res.json({ complaints: listComplaints() });
+  // 사진 data URL을 제외해 대량 등록 후에도 목록이 로드되도록 한다.
+  res.json({ complaints: listComplaintsLite() });
+});
+
+app.get("/api/complaints/:id", requireAuth, (req, res) => {
+  const id = String(req.params.id);
+  const item = getComplaint(id);
+  if (!item) {
+    res.status(404).json({ error: "민원을 찾을 수 없습니다." });
+    return;
+  }
+  res.json({ complaint: item });
 });
 
 app.put("/api/complaints", requireAuth, (req, res) => {
@@ -747,7 +1002,7 @@ app.put("/api/complaints", requireAuth, (req, res) => {
 app.post("/api/complaints", requireAuth, (req, res) => {
   const body = req.body as ComplaintInput | { items: ComplaintInput[] };
   if ("items" in body && Array.isArray(body.items)) {
-    const items = addComplaints(body.items);
+    const items = addComplaints(body.items).map(stripComplaintMedia);
     auditFromReq(req, {
       userId: req.session!.user.id,
       username: req.session!.user.username,
@@ -769,7 +1024,7 @@ app.post("/api/complaints", requireAuth, (req, res) => {
   }
   const input = body as ComplaintInput;
   const isUpdate = Boolean(input.id && complaintExists(input.id));
-  const item = upsertComplaint(input);
+  const item = stripComplaintMedia(upsertComplaint(input));
   auditComplaintMutation(
     req,
     isUpdate ? "COMPLAINT_UPDATE" : "COMPLAINT_CREATE",

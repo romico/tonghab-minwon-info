@@ -273,7 +273,9 @@ function writeUsage(outDir, plat) {
 
 ■ 데이터
   - data/tonghab-minwon.db 에 저장됩니다.
-  - 폴더 전체를 복사하면 데이터도 함께 이동합니다.
+  - data/archives/ 에 관리연도·분기 아카이브가 보관됩니다.
+  - 백업·이전 시 data 폴더 전체(archives 포함)를 복사하세요.
+  - 설정 화면에서 「아카이브 전환」「보관본 복원·삭제」를 사용할 수 있습니다.
 
 ■ 업데이트
   - 설정 → "버전 및 업데이트"에서 확인·적용합니다.
@@ -306,7 +308,10 @@ async function buildPlatform(plat, shared) {
   mkdirSync(join(outDir, "runtime"), { recursive: true });
   writeFileSync(
     join(outDir, "data", "README.txt"),
-    "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n",
+    "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다.\n\n" +
+      "백업 시 이 폴더 전체(archives 포함)를 복사하세요.\n" +
+      "- tonghab-minwon.db : 현재 활성 DB\n" +
+      "- archives/ : 관리연도·분기 아카이브 보관본\n",
     "utf8",
   );
 

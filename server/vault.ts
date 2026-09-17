@@ -267,6 +267,27 @@ export function reencryptSealedUserSecrets(
   }
 }
 
+/** 보관본 app_settings의 salt/verifier로 DEK 유도·검증 */
+export function dekFromArchiveSettings(
+  password: string,
+  salt: string | null,
+  verifier: string | null,
+): Buffer {
+  if (!password) {
+    throw new Error("보관본 비밀번호가 필요합니다.");
+  }
+  if (!salt || !verifier) {
+    throw new Error("보관본 암호화 설정이 손상되었습니다.");
+  }
+  const dek = deriveKey(password, salt);
+  if (!verifyKey(dek, verifier)) {
+    throw new Error(
+      "보관본 비밀번호가 올바르지 않습니다. (아카이브 시점 비밀번호를 입력하세요)",
+    );
+  }
+  return dek;
+}
+
 /** TOTP 시크릿 등 부가 비밀값 암·복호화 */
 export function sealSecret(plain: string, key: Buffer): string {
   return encryptString(plain, key);

@@ -31,10 +31,14 @@ export function PhotoGallery({
             type="button"
             className="photo-thumb"
             title={p.label || photoRoleLabel(p.role)}
-            onClick={() => setPreview(p)}
+            onClick={() => (p.url ? setPreview(p) : undefined)}
             style={{ width: size, height: Math.round(size * 0.75) }}
           >
-            <img src={p.url} alt={p.label ?? ""} />
+            {p.url ? (
+              <img src={p.url} alt={p.label ?? ""} />
+            ) : (
+              <span className="photo-thumb-empty">사진</span>
+            )}
             <span className="photo-badge">
               {p.label?.slice(0, 6) || photoRoleLabel(p.role)}
             </span>

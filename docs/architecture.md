@@ -1,7 +1,7 @@
 # 통합민원정보 — 아키텍처
 
-> 코드 기준일: 2026-09-15  
-> 관련 문서: [ERD](./erd.md) · [데이터 흐름(Mermaid)](./data-flow.md) · [사진·민원카드 정책](./photo-hwpx-policy.md) · [보고서 스키마](./report-schema.md)
+> 코드 기준일: 2026-09-17  
+> 관련 문서: [ERD](./erd.md) · [데이터 흐름(Mermaid)](./data-flow.md) · [사진·민원카드 정책](./photo-hwpx-policy.md) · [저장 용량·성능 분산 방향](./storage-scaling-decision.md) · [보고서 스키마](./report-schema.md)
 
 ## 1. 개요
 
@@ -131,7 +131,7 @@ flowchart LR
 | `/summary` | SummaryPage | 총괄표 |
 | `/daily` | DailyPage | 일일보고 |
 | `/audit` | AuditPage | 감사 로그 |
-| `/settings` | SettingsPage | TTL·비밀번호·DB 초기화 |
+| `/settings` | SettingsPage | TTL·비밀번호·2FA·용량·아카이브/복원·DB 초기화 |
 
 네비게이션 순서(사이드바): 홈 → 관리대장 → 부서별현황 → 총괄표 → 일일보고 → 감사로그 → 설정
 
@@ -147,12 +147,19 @@ flowchart LR
 | POST | `/api/auth/change-password` | ✓ | 비밀번호 변경 |
 | GET/PUT | `/api/settings` | ✓ | 세션 TTL |
 | GET | `/api/audit` | ✓ | 감사 로그 |
-| GET | `/api/complaints` | ✓ | 전체 목록 |
+| GET | `/api/complaints` | ✓ | 목록 (사진 본문 제외 lite) |
+| GET | `/api/complaints/:id` | ✓ | 상세 (사진 포함) |
 | PUT | `/api/complaints` | ✓ | upsert |
 | POST | `/api/complaints` | ✓ | 단건 또는 일괄 |
 | POST | `/api/complaints/replace` | ✓ | 전체 교체 |
 | POST | `/api/complaints/reset-seed` | ✓+비밀번호 | 샘플 복원 |
 | DELETE | `/api/complaints/:id` | ✓ | 삭제 |
+| GET | `/api/storage` | ✓ | DB 경로·용량·archives 목록 |
+| POST | `/api/storage/compact` | ✓ | VACUUM 용량 회수 |
+| POST | `/api/storage/archive-rollover` | ✓+비밀번호 | 아카이브 후 민원만 비움 |
+| GET | `/api/storage/archives/:name` | ✓ | 보관본 메타 |
+| POST | `/api/storage/archive-restore` | ✓+비밀번호 | 병합 또는 통째 교체 |
+| POST | `/api/storage/archive-delete` | ✓+비밀번호(+2FA) | 보관본 파일 삭제 |
 
 > `docs/report-schema.md`에 언급된 `/api/reports/*`, freeze 스냅샷은 **미구현**입니다.
 

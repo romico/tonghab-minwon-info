@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { apiGetComplaint } from "@/api/complaints";
 import {
   DEPARTMENTS,
   FIELD_OPTIONS,
   PROCESS_STATUS_LABEL,
   PROCESS_STATUS_OPTIONS,
   RECEIPT_ROUTES,
+  complaintMediaLoaded,
   syncPhotoFields,
   type Complaint,
   type ComplaintInput,
@@ -16,6 +18,8 @@ import { HwpxImportPanel } from "@/components/HwpxImportPanel";
 import { MaskedPersonalInfo } from "@/components/MaskedPersonalInfo";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { useComplaintStore } from "@/store/ComplaintStore";
+
+const LEDGER_PAGE_SIZE = 20;
 
 type LedgerLocationState = {
   returnTo?: string;
@@ -87,6 +91,7 @@ const emptyForm = (): ComplaintInput => ({
   photoAfterUrl: null,
   photos: [],
   remark: "",
+  importKey: null,
 });
 
 function statusBadge(status: ProcessStatus | null) {
@@ -130,6 +135,7 @@ export function LedgerPage() {
   const [deptFilter, setDeptFilter] = useState(
     () => searchParams.get("dept") || "ALL",
   );
+  const [listPage, setListPage] = useState(1);
   const editPanelRef = useRef<HTMLDivElement>(null);
   const openedEditId = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -156,6 +162,25 @@ export function LedgerPage() {
     searchQuery,
     deptName,
   ]);
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(displayComplaints.length / LEDGER_PAGE_SIZE),
+  );
+  const safePage = Math.min(listPage, pageCount);
+  const pageStart = (safePage - 1) * LEDGER_PAGE_SIZE;
+  const pagedComplaints = displayComplaints.slice(
+    pageStart,
+    pageStart + LEDGER_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setListPage(1);
+  }, [fieldFilter, statusFilter, deptFilter, searchQuery]);
+
+  useEffect(() => {
+    if (listPage > pageCount) setListPage(pageCount);
+  }, [listPage, pageCount]);
 
   const hasActiveSearch =
     normalizeSearchText(searchQuery).length > 0 ||
@@ -225,16 +250,36 @@ export function LedgerPage() {
     }
   }
 
+  function scrollToEditPanelHead() {
+    window.setTimeout(() => {
+      const head = editPanelRef.current;
+      if (!head) return;
+      head.scrollIntoView({ behavior: "smooth", block: "start" });
+      head.focus({ preventScroll: true });
+    }, 0);
+  }
+
   function startCreate() {
     setReturnTo(null);
     openedEditId.current = null;
     setEditing(emptyForm());
+    scrollToEditPanelHead();
   }
 
-  function startEdit(c: Complaint, backTo?: string | null) {
+  async function startEdit(c: Complaint, backTo?: string | null) {
     setReturnTo(backTo ?? null);
     openedEditId.current = c.id;
     setEditing({ ...c });
+    scrollToEditPanelHead();
+    if (complaintMediaLoaded(c)) return;
+    try {
+      const full = await apiGetComplaint(c.id);
+      if (openedEditId.current === c.id) {
+        setEditing({ ...full });
+      }
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   // 부서별현황 등에서 ?edit=id 로 진입 시 수정 폼 오픈
@@ -256,10 +301,7 @@ export function LedgerPage() {
     }
 
     const state = location.state as LedgerLocationState | null;
-    startEdit(found, state?.returnTo ?? "/departments");
-    requestAnimationFrame(() => {
-      editPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    void startEdit(found, state?.returnTo ?? "/departments");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open once per edit id
   }, [searchParams, complaints, location.state]);
 
@@ -378,8 +420,13 @@ export function LedgerPage() {
       <HwpxImportPanel />
 
       {editing && (
-        <div className="panel" style={{ marginBottom: 20 }} ref={editPanelRef}>
-          <div className="panel-head">
+        <div className="panel ledger-edit-panel" style={{ marginBottom: 20 }}>
+          <div
+            className="panel-head"
+            id="ledger-edit-panel-head"
+            ref={editPanelRef}
+            tabIndex={-1}
+          >
             <h2>
               {editing.id ? `민원 수정 #${editing.id}` : "민원 등록"}
               {returnTo ? (
@@ -761,9 +808,9 @@ export function LedgerPage() {
                 </tr>
               </thead>
               <tbody>
-                {displayComplaints.map((c, i) => (
+                {pagedComplaints.map((c, i) => (
                   <tr key={c.id}>
-                    <td className="num">{i + 1}</td>
+                    <td className="num">{pageStart + i + 1}</td>
                     <td>
                       <PhotoGallery photos={c.photos ?? []} size={56} />
                     </td>
@@ -791,7 +838,7 @@ export function LedgerPage() {
                         <button
                           type="button"
                           className="btn"
-                          onClick={() => startEdit(c)}
+                          onClick={() => void startEdit(c)}
                         >
                           수정
                         </button>
@@ -810,6 +857,35 @@ export function LedgerPage() {
             </table>
           )}
         </div>
+        {displayComplaints.length > 0 && (
+          <div className="audit-pager ledger-pager">
+            <button
+              type="button"
+              className="btn"
+              disabled={safePage <= 1}
+              onClick={() => setListPage((p) => Math.max(1, p - 1))}
+            >
+              이전
+            </button>
+            <span className="audit-pager-status">
+              {safePage} / {pageCount} 페이지
+              <span className="ledger-pager-range">
+                {" "}
+                · {pageStart + 1}–
+                {Math.min(pageStart + LEDGER_PAGE_SIZE, displayComplaints.length)}
+                /{displayComplaints.length}건
+              </span>
+            </span>
+            <button
+              type="button"
+              className="btn"
+              disabled={safePage >= pageCount}
+              onClick={() => setListPage((p) => Math.min(pageCount, p + 1))}
+            >
+              다음
+            </button>
+          </div>
+        )}
       </div>
 
       {deleteTarget && (

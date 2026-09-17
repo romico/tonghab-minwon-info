@@ -1,8 +1,8 @@
 # 사진 데이터 · 민원카드(HWPX) 처리 정책
 
-> 코드 기준일: 2026-09-15  
+> 코드 기준일: 2026-09-17  
 > 구현: `src/import/hwpxParser.ts`, `src/schema/photos.ts`, `src/components/HwpxImportPanel.tsx`, `src/components/PhotoGallery.tsx`  
-> 관련: [아키텍처](./architecture.md) · [ERD](./erd.md) · [데이터 흐름](./data-flow.md) · [PRD §4.9](./PRD.md)
+> 관련: [아키텍처](./architecture.md) · [ERD](./erd.md) · [데이터 흐름](./data-flow.md) · [저장 용량·성능 분산 방향](./storage-scaling-decision.md) · [PRD §4.9](./PRD.md)
 
 ---
 
@@ -11,10 +11,11 @@
 | 항목 | 정책 |
 |---|---|
 | 원본 HWPX | **보관하지 않음**. 가져오기 시에만 브라우저에서 파싱 |
-| 사진 저장소 | **별도 파일/Blob 스토어 없음**. `data:image/...;base64,...` URL을 민원 JSON에 포함 |
+| 사진 저장소 | **별도 파일/Blob 스토어 없음**(현행). `data:image/...;base64,...` URL을 민원 JSON에 포함 |
 | 영속 위치 | SQLite `complaints.data` (Complaint JSON) |
 | 서버 역할 | JSON CRUD만 수행. 이미지 업로드 전용 API 없음 |
-| 용량 | Express body limit **50mb** (사진 data URL 대비). HWPX 유입 시 JPEG 압축 필수 |
+| 용량 | Express JSON limit **100mb**. HWPX 유입 시 JPEG 압축 필수 |
+| 용량·성능 분산 | 파일 분리(방안 1)는 **관리 이슈로 보류**. 압축 강화(방안 2)는 **QA 검증 중**. **아카이브 전환·복원(방안 5) MVP 구현**. 상세는 [storage-scaling-decision.md](./storage-scaling-decision.md) |
 | 감사 | 파싱 자체는 감사하지 않음. **등록 API** 성공 시 `COMPLAINT_BATCH_CREATE` 등 기록 |
 
 ---
@@ -87,11 +88,12 @@ interface ComplaintPhoto {
   → JSZip
   → 텍스트: Contents/section0.xml 의 <t> 토큰
        (부족 시 Preview/PrvText.txt 폴백)
-  → 이미지: BinData/* → JPEG 압축(maxWidth 720, quality 0.72)
+  → 이미지: BinData/* → JPEG 압축
+       (긴 변 max **640px**, quality **0.55**, 초과 시 단계 축소; 실패 시 480/0.4 재시도)
        → data URL
   → 필드 휴리스틱 → HwpxImportDraft (초안)
   → 사용자 검토·수정
-  → addComplaints → POST /api/complaints { items }
+  → 백그라운드 건별 등록 → POST /api/complaints { items }
 ```
 
 ### 3.3 이미지 추출 규칙
@@ -100,7 +102,7 @@ interface ComplaintPhoto {
 |---|---|
 | 소스 | ZIP 내 `BinData/` 하위 파일, 이름 정렬 |
 | MIME | 확장자로 판별. `image/*`만 채택 |
-| 압축 | canvas → JPEG data URL. 실패 시 원본 base64 data URL |
+| 압축 | canvas → JPEG data URL. **긴 변** 기준 리사이즈. 실패 시 강한 재시도 후 원본 base64 폴백 |
 | 캡션 | 본문 토큰 중 짧은 설명 문구를 수집해 순서대로 매칭 |
 | role 추정 | 캡션에 「처리전/후」「위치도」 등이 있으면 해당 role, 기본 `receipt` |
 | 원본명 | `sourceName`에 BinData 상대 경로 보존 |
@@ -139,7 +141,7 @@ interface ComplaintPhoto {
 | 항목 | 정책 |
 |---|---|
 | 개인정보 | 성명·연락처는 민원 JSON에 평문 저장. 엑셀 내보내기 시 마스킹 옵션 가능 |
-| 용량 위험 | 사진 다건·비압축 시 DB·요청 비대화 → HWPX 경로 압축 강제, API 50mb |
+| 용량 위험 | 사진 다건·비압축 시 DB·요청 비대화 → HWPX 경로 압축 강제, 목록 API는 사진 본문 제외. 구조적 분산은 [storage-scaling-decision.md](./storage-scaling-decision.md) 참고 |
 | 휴리스틱 | 부서·분야·상태·role 오추정 가능 → UX상 검수 필수 |
 | 감사 공백 | HWPX/엑셀 **파싱**은 감사 없음. **등록·수정·삭제 API**만 감사 |
 | 오프라인 원본 | 원본 민원카드 파일 재현이 필요하면 업무 측에서 HWPX를 별도 보관 |

@@ -8,6 +8,17 @@ import {
   apiUpdateSettings,
 } from "@/api/auth";
 import {
+  apiArchiveDelete,
+  apiArchiveRestore,
+  apiArchiveRollover,
+  apiCompactStorage,
+  apiGetArchiveInfo,
+  apiGetStorage,
+  formatBytes,
+  type ArchiveInfo,
+  type DbStorageInfo,
+} from "@/api/storage";
+import {
   apiApplyUpdate,
   apiCheckUpdate,
   apiGetVersion,
@@ -17,8 +28,8 @@ import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
 
 export function SettingsPage() {
-  const { refresh, ttlMinutes, expiresAt, user, vault } = useAuth();
-  const { resetSeed } = useComplaintStore();
+  const { refresh, ttlMinutes, expiresAt, user, vault, logout } = useAuth();
+  const { resetSeed, refreshComplaints } = useComplaintStore();
   const [sessionTtlMinutes, setSessionTtlMinutes] = useState(30);
   const [minTtl, setMinTtl] = useState(10);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
@@ -39,6 +50,36 @@ export function SettingsPage() {
   const [dbMsg, setDbMsg] = useState<string | null>(null);
   const [dbErr, setDbErr] = useState<string | null>(null);
   const [resettingDb, setResettingDb] = useState(false);
+
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archiveLabel, setArchiveLabel] = useState(() =>
+    String(new Date().getFullYear()),
+  );
+  const [archivePassword, setArchivePassword] = useState("");
+  const [archiveTotpCode, setArchiveTotpCode] = useState("");
+  const [archiveMsg, setArchiveMsg] = useState<string | null>(null);
+  const [archiveErr, setArchiveErr] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
+
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
+  const [restoreFileName, setRestoreFileName] = useState<string | null>(null);
+  const [restoreInfo, setRestoreInfo] = useState<ArchiveInfo | null>(null);
+  const [restoreMode, setRestoreMode] = useState<"merge" | "replace">("merge");
+  const [restorePassword, setRestorePassword] = useState("");
+  const [restoreVaultPassword, setRestoreVaultPassword] = useState("");
+  const [restoreTotpCode, setRestoreTotpCode] = useState("");
+  const [restoreErr, setRestoreErr] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreInfoLoading, setRestoreInfoLoading] = useState(false);
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteFileName, setDeleteFileName] = useState<string | null>(null);
+  const [deleteInfo, setDeleteInfo] = useState<ArchiveInfo | null>(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteTotpCode, setDeleteTotpCode] = useState("");
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteInfoLoading, setDeleteInfoLoading] = useState(false);
 
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [recoveryLeft, setRecoveryLeft] = useState(0);
@@ -61,6 +102,54 @@ export function SettingsPage() {
   const [applyingUpdate, setApplyingUpdate] = useState(false);
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false);
 
+  const [storage, setStorage] = useState<DbStorageInfo | null>(null);
+  const [storageErr, setStorageErr] = useState<string | null>(null);
+  const [storageMsg, setStorageMsg] = useState<string | null>(null);
+  const [storageLoading, setStorageLoading] = useState(true);
+  const [compacting, setCompacting] = useState(false);
+
+  async function loadStorage() {
+    setStorageLoading(true);
+    setStorageErr(null);
+    try {
+      setStorage(await apiGetStorage());
+    } catch (err) {
+      setStorageErr(
+        err instanceof Error ? err.message : "저장소 정보를 불러오지 못했습니다.",
+      );
+    } finally {
+      setStorageLoading(false);
+    }
+  }
+
+  async function onCompactStorage() {
+    setCompacting(true);
+    setStorageErr(null);
+    setStorageMsg(null);
+    try {
+      const result = await apiCompactStorage();
+      setStorage(result.storage);
+      const saved = result.beforeBytes - result.afterBytes;
+      if (saved <= 1024 * 64) {
+        setStorageMsg(
+          `회수할 빈 공간이 거의 없습니다 (${formatBytes(result.beforeBytes)} → ${formatBytes(result.afterBytes)}). ` +
+            `현재 민원 ${result.storage.complaintCount.toLocaleString("ko-KR")}건이 그대로 저장되어 용량을 쓰고 있습니다. ` +
+            `용량을 크게 줄이려면 아래 「아카이브 전환」으로 민원을 보관한 뒤 비우세요.`,
+        );
+      } else {
+        setStorageMsg(
+          `용량 회수 완료: ${formatBytes(result.beforeBytes)} → ${formatBytes(result.afterBytes)} (약 ${formatBytes(saved)} 감소)`,
+        );
+      }
+    } catch (err) {
+      setStorageErr(
+        err instanceof Error ? err.message : "용량 회수에 실패했습니다.",
+      );
+    } finally {
+      setCompacting(false);
+    }
+  }
+
   useEffect(() => {
     void apiGetSettings()
       .then((s) => {
@@ -77,6 +166,7 @@ export function SettingsPage() {
     void apiGetVersion()
       .then((v) => setAppVersion(v.version))
       .catch(() => setAppVersion(null));
+    void loadStorage();
   }, []);
 
   async function onCheckUpdate() {
@@ -270,6 +360,229 @@ export function SettingsPage() {
     setDbErr(null);
   }
 
+  function openArchiveConfirm() {
+    setArchiveMsg(null);
+    setArchiveErr(null);
+    setArchivePassword("");
+    setArchiveTotpCode("");
+    setArchiveLabel(String(new Date().getFullYear()));
+    setArchiveConfirmOpen(true);
+  }
+
+  function closeArchiveConfirm() {
+    if (archiving) return;
+    setArchiveConfirmOpen(false);
+    setArchivePassword("");
+    setArchiveTotpCode("");
+    setArchiveErr(null);
+  }
+
+  async function onArchiveRollover(e: FormEvent) {
+    e.preventDefault();
+    setArchiveMsg(null);
+    setArchiveErr(null);
+    if (!archivePassword) {
+      setArchiveErr("비밀번호를 입력하세요.");
+      return;
+    }
+    if (totpEnabled && !archiveTotpCode.trim()) {
+      setArchiveErr("2단계 인증 코드를 입력하세요.");
+      return;
+    }
+    if (!archiveLabel.trim()) {
+      setArchiveErr("보관 라벨을 입력하세요.");
+      return;
+    }
+    setArchiving(true);
+    try {
+      const result = await apiArchiveRollover(archivePassword, {
+        label: archiveLabel.trim(),
+        totpCode: totpEnabled ? archiveTotpCode.trim() : undefined,
+      });
+      setArchiveConfirmOpen(false);
+      setArchivePassword("");
+      setArchiveTotpCode("");
+      setStorage(result.storage);
+      await refreshComplaints();
+      setArchiveMsg(
+        `보관 완료: ${result.archiveFileName} (민원 ${result.archivedComplaintCount.toLocaleString("ko-KR")}건). ` +
+          `활성 DB ${formatBytes(result.beforeBytes)} → ${formatBytes(result.afterBytes)}. ` +
+          `스냅샷·감사 로그·계정은 유지되었습니다.`,
+      );
+    } catch (err) {
+      setArchiveErr(
+        err instanceof Error ? err.message : "아카이브 전환에 실패했습니다.",
+      );
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  async function openRestoreConfirm(fileName: string) {
+    setArchiveMsg(null);
+    setArchiveErr(null);
+    setRestoreErr(null);
+    setRestorePassword("");
+    setRestoreVaultPassword("");
+    setRestoreTotpCode("");
+    setRestoreMode("merge");
+    setRestoreFileName(fileName);
+    setRestoreInfo(null);
+    setRestoreConfirmOpen(true);
+    setRestoreInfoLoading(true);
+    try {
+      setRestoreInfo(await apiGetArchiveInfo(fileName));
+    } catch (err) {
+      setRestoreErr(
+        err instanceof Error ? err.message : "보관본 정보를 불러오지 못했습니다.",
+      );
+    } finally {
+      setRestoreInfoLoading(false);
+    }
+  }
+
+  function closeRestoreConfirm() {
+    if (restoring) return;
+    setRestoreConfirmOpen(false);
+    setRestoreFileName(null);
+    setRestoreInfo(null);
+    setRestorePassword("");
+    setRestoreVaultPassword("");
+    setRestoreTotpCode("");
+    setRestoreErr(null);
+  }
+
+  async function onRestoreArchive(e: FormEvent) {
+    e.preventDefault();
+    setRestoreErr(null);
+    setArchiveMsg(null);
+    if (!restoreFileName) return;
+    if (!restorePassword) {
+      setRestoreErr("현재 비밀번호를 입력하세요.");
+      return;
+    }
+    if (totpEnabled && !restoreTotpCode.trim()) {
+      setRestoreErr("2단계 인증 코드를 입력하세요.");
+      return;
+    }
+    if (
+      restoreMode === "merge" &&
+      restoreInfo?.vaultEnabled &&
+      !restoreVaultPassword
+    ) {
+      setRestoreErr(
+        "보관본이 암호화되어 있습니다. 아카이브 시점 비밀번호를 입력하세요.",
+      );
+      return;
+    }
+    setRestoring(true);
+    try {
+      const result = await apiArchiveRestore({
+        password: restorePassword,
+        fileName: restoreFileName,
+        mode: restoreMode,
+        archivePassword:
+          restoreMode === "merge" && restoreInfo?.vaultEnabled
+            ? restoreVaultPassword
+            : undefined,
+        totpCode: totpEnabled ? restoreTotpCode.trim() : undefined,
+      });
+      setRestoreConfirmOpen(false);
+      setRestorePassword("");
+      setRestoreVaultPassword("");
+      setRestoreTotpCode("");
+      setStorage(result.storage);
+
+      if (result.mode === "replace") {
+        setArchiveMsg(
+          `통째 교체 완료: ${result.archiveFileName}. 이전 활성은 ${result.backupFileName}에 백업되었습니다. 보관 시점 계정으로 다시 로그인해 주세요.`,
+        );
+        await logout();
+        return;
+      }
+
+      await refreshComplaints();
+      setArchiveMsg(
+        `민원 병합 완료: ${result.archiveFileName} (${result.imported.toLocaleString("ko-KR")}건` +
+          (result.vaultReencrypted ? ", Vault 재암호화" : "") +
+          `). 계정·스냅샷·감사 로그는 유지되었습니다.`,
+      );
+    } catch (err) {
+      setRestoreErr(
+        err instanceof Error ? err.message : "보관본 복원에 실패했습니다.",
+      );
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  async function openDeleteConfirm(fileName: string) {
+    setArchiveMsg(null);
+    setArchiveErr(null);
+    setDeleteErr(null);
+    setDeletePassword("");
+    setDeleteTotpCode("");
+    setDeleteFileName(fileName);
+    setDeleteInfo(null);
+    setDeleteConfirmOpen(true);
+    setDeleteInfoLoading(true);
+    try {
+      setDeleteInfo(await apiGetArchiveInfo(fileName));
+    } catch (err) {
+      setDeleteErr(
+        err instanceof Error ? err.message : "보관본 정보를 불러오지 못했습니다.",
+      );
+    } finally {
+      setDeleteInfoLoading(false);
+    }
+  }
+
+  function closeDeleteConfirm() {
+    if (deleting) return;
+    setDeleteConfirmOpen(false);
+    setDeleteFileName(null);
+    setDeleteInfo(null);
+    setDeletePassword("");
+    setDeleteTotpCode("");
+    setDeleteErr(null);
+  }
+
+  async function onDeleteArchive(e: FormEvent) {
+    e.preventDefault();
+    setDeleteErr(null);
+    setArchiveMsg(null);
+    if (!deleteFileName) return;
+    if (!deletePassword) {
+      setDeleteErr("비밀번호를 입력하세요.");
+      return;
+    }
+    if (totpEnabled && !deleteTotpCode.trim()) {
+      setDeleteErr("2단계 인증 코드를 입력하세요.");
+      return;
+    }
+    setDeleting(true);
+    try {
+      const result = await apiArchiveDelete({
+        password: deletePassword,
+        fileName: deleteFileName,
+        totpCode: totpEnabled ? deleteTotpCode.trim() : undefined,
+      });
+      setDeleteConfirmOpen(false);
+      setDeletePassword("");
+      setDeleteTotpCode("");
+      setStorage(result.storage);
+      setArchiveMsg(
+        `보관본 삭제 완료: ${result.archiveFileName} (민원 ${result.complaintCount.toLocaleString("ko-KR")}건 · ${formatBytes(result.bytes)}). 이 작업은 되돌릴 수 없습니다.`,
+      );
+    } catch (err) {
+      setDeleteErr(
+        err instanceof Error ? err.message : "보관본 삭제에 실패했습니다.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function onResetDb(e: FormEvent) {
     e.preventDefault();
     setDbMsg(null);
@@ -291,7 +604,10 @@ export function SettingsPage() {
       setDbConfirmOpen(false);
       setDbPassword("");
       setDbTotpCode("");
-      setDbMsg("DB를 초기화하고 샘플 데이터로 복원했습니다.");
+      setDbMsg(
+        "DB를 초기화하고 샘플 데이터로 복원했습니다. 용량이 줄었는지 「용량 새로고침」으로 확인하세요.",
+      );
+      void loadStorage();
     } catch (err) {
       setDbErr(err instanceof Error ? err.message : "DB 초기화에 실패했습니다.");
     } finally {
@@ -737,6 +1053,242 @@ export function SettingsPage() {
 
       <div className="panel settings-panel">
         <div className="panel-head">
+          <h2>데이터베이스 위치</h2>
+          <span className="badge">
+            {storageLoading
+              ? "확인 중…"
+              : storage
+                ? formatBytes(storage.totalBytes)
+                : "—"}
+          </span>
+        </div>
+        <div className="panel-body settings-panel-body">
+          <p className="settings-lead">
+            현재 앱이 사용 중인 SQLite 파일 경로와 용량입니다. 「용량 회수」는
+            삭제 후 남은 빈 페이지만 줄입니다. 민원 건수가 많으면 파일 크기는
+            거의 줄지 않으며, 크게 줄이려면 「아카이브 전환」으로 민원을 보관한 뒤
+            비우세요.
+          </p>
+          {storageErr && (
+            <p className="settings-alert is-error">{storageErr}</p>
+          )}
+          {storageMsg && (
+            <p className="settings-alert is-ok">{storageMsg}</p>
+          )}
+          {storage && storage.complaintCount > 10 && (
+            <p className="settings-alert is-error">
+              민원 {storage.complaintCount.toLocaleString("ko-KR")}건이 저장되어
+              있습니다 ({formatBytes(storage.dbBytes)}). 초기 회수만으로는
+              이 용량이 줄지 않습니다.
+            </p>
+          )}
+          {storage && (
+            <>
+              <div className="settings-status">
+                <div className="settings-stat">
+                  <span className="settings-stat-label">민원 건수</span>
+                  <strong className="settings-stat-value settings-stat-value-sm">
+                    {storage.complaintCount.toLocaleString("ko-KR")}건
+                  </strong>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat-label">DB 파일</span>
+                  <strong className="settings-stat-value settings-stat-value-sm">
+                    {formatBytes(storage.dbBytes)}
+                  </strong>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat-label">WAL+SHM</span>
+                  <strong className="settings-stat-value settings-stat-value-sm">
+                    {formatBytes(storage.walBytes + storage.shmBytes)}
+                  </strong>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat-label">회수 가능(빈공간)</span>
+                  <strong className="settings-stat-value settings-stat-value-sm">
+                    {formatBytes(storage.freelistBytes)}
+                  </strong>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat-label">사진 데이터</span>
+                  <strong className="settings-stat-value settings-stat-value-sm">
+                    {formatBytes(storage.photoPayloadBytes)}
+                  </strong>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat-label">텍스트 등</span>
+                  <strong className="settings-stat-value settings-stat-value-sm">
+                    {formatBytes(
+                      Math.max(
+                        0,
+                        storage.complaintPayloadBytes - storage.photoPayloadBytes,
+                      ),
+                    )}
+                  </strong>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat-label">data 폴더</span>
+                  <strong className="settings-stat-value settings-stat-value-sm">
+                    {formatBytes(storage.dataDirBytes)}
+                  </strong>
+                </div>
+              </div>
+              {storage.complaintPayloadBytes > 0 && (
+                <p className="settings-help" style={{ marginTop: 8 }}>
+                  민원 본문 JSON 중 사진(base64) 약{" "}
+                  {Math.round(
+                    (storage.photoPayloadBytes /
+                      storage.complaintPayloadBytes) *
+                      100,
+                  )}
+                  % · 이미지 {storage.photoCount.toLocaleString("ko-KR")}장
+                </p>
+              )}
+
+              <dl className="storage-meta">
+                <div>
+                  <dt>DB 파일 경로</dt>
+                  <dd>
+                    <code className="storage-path">{storage.dbPath}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>데이터 폴더</dt>
+                  <dd>
+                    <code className="storage-path">{storage.dataDir}</code>
+                  </dd>
+                </div>
+              </dl>
+
+              {storage.dataDirFiles.length > 0 && (
+                <div className="storage-files">
+                  <div className="storage-files-title">폴더 내 파일</div>
+                  <ul>
+                    {storage.dataDirFiles.map((f) => (
+                      <li key={f.name}>
+                        <span>{f.name}</span>
+                        <span>{formatBytes(f.bytes)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="btn"
+              disabled={storageLoading || compacting}
+              onClick={() => void loadStorage()}
+            >
+              {storageLoading ? "새로고침 중…" : "용량 새로고침"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={storageLoading || compacting}
+              onClick={() => void onCompactStorage()}
+            >
+              {compacting ? "회수 중…" : "용량 회수 (VACUUM)"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel settings-panel">
+        <div className="panel-head">
+          <h2>아카이브 · 복원</h2>
+          <span className="badge">운영</span>
+        </div>
+        <div className="panel-body settings-panel-body">
+          <p className="settings-lead">
+            관리연도·분기 마감 시 현재 DB를{" "}
+            <code>data/archives/</code>에 보관한 뒤 활성 민원만 비웁니다.
+            보고 스냅샷·감사 로그·계정·2FA·암호화 설정은 유지됩니다. 복원은
+            기본적으로 민원만 병합하며, 통째 교체는 로그인·2FA가 보관 시점으로
+            되돌아갑니다.
+          </p>
+          {archiveMsg && (
+            <p className="settings-alert is-ok">{archiveMsg}</p>
+          )}
+          {archiveErr &&
+            !archiveConfirmOpen &&
+            !restoreConfirmOpen &&
+            !deleteConfirmOpen && (
+            <p className="settings-alert is-error">{archiveErr}</p>
+          )}
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={openArchiveConfirm}
+              disabled={archiving || restoring || deleting}
+            >
+              아카이브 전환…
+            </button>
+          </div>
+
+          {storage && storage.archives.length > 0 && (
+            <div className="storage-files" style={{ marginTop: "1rem" }}>
+              <div className="storage-files-title">
+                보관본 ({storage.archivesDir})
+              </div>
+              <ul>
+                {storage.archives.map((f) => (
+                  <li key={f.name}>
+                    <span>
+                      {f.name}
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: "0.85em",
+                          opacity: 0.75,
+                        }}
+                      >
+                        {formatBytes(f.bytes)} ·{" "}
+                        {new Date(f.mtimeMs).toLocaleString("ko-KR")}
+                      </span>
+                    </span>
+                    <span
+                      style={{
+                        display: "flex",
+                        gap: "0.35rem",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={archiving || restoring || deleting}
+                        onClick={() => void openRestoreConfirm(f.name)}
+                      >
+                        복원…
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        disabled={archiving || restoring || deleting}
+                        onClick={() => void openDeleteConfirm(f.name)}
+                      >
+                        삭제…
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {storage && storage.archives.length === 0 && (
+            <p className="settings-lead" style={{ marginTop: "0.75rem" }}>
+              아직 보관본이 없습니다. 아카이브 전환 후 여기에 목록이 표시됩니다.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="panel settings-panel">
+        <div className="panel-head">
           <h2>DB 초기화</h2>
           <span className="badge">위험</span>
         </div>
@@ -819,6 +1371,296 @@ export function SettingsPage() {
                   disabled={resettingDb}
                 >
                   {resettingDb ? "초기화 중…" : "초기화 실행"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {archiveConfirmOpen && (
+        <div
+          className="settings-confirm-backdrop"
+          role="presentation"
+          onClick={closeArchiveConfirm}
+        >
+          <div
+            className="settings-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="archive-rollover-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="archive-rollover-title">아카이브 전환 확인</h3>
+            <p>
+              현재 DB를 보관한 뒤 활성 민원만 비웁니다. 스냅샷·감사 로그·계정은
+              유지되며 샘플 민원은 넣지 않습니다. 민원{" "}
+              {storage
+                ? storage.complaintCount.toLocaleString("ko-KR")
+                : "—"}
+              건이 보관됩니다.
+            </p>
+            <form onSubmit={(e) => void onArchiveRollover(e)}>
+              <label className="field">
+                보관 라벨
+                <input
+                  value={archiveLabel}
+                  onChange={(e) => setArchiveLabel(e.target.value)}
+                  required
+                  placeholder="예: 2026 또는 2026Q1"
+                  autoFocus
+                />
+              </label>
+              <label className="field">
+                비밀번호
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={archivePassword}
+                  onChange={(e) => setArchivePassword(e.target.value)}
+                  required
+                />
+              </label>
+              {totpEnabled && (
+                <label className="field">
+                  2단계 인증 코드
+                  <input
+                    value={archiveTotpCode}
+                    onChange={(e) => setArchiveTotpCode(e.target.value)}
+                    required
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    placeholder="OTP 6자리 또는 복구 코드"
+                  />
+                </label>
+              )}
+              {archiveErr && (
+                <p className="settings-alert is-error">{archiveErr}</p>
+              )}
+              <div className="settings-confirm-actions">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={closeArchiveConfirm}
+                  disabled={archiving}
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={archiving}
+                >
+                  {archiving ? "보관 중…" : "아카이브 실행"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {restoreConfirmOpen && restoreFileName && (
+        <div
+          className="settings-confirm-backdrop"
+          role="presentation"
+          onClick={closeRestoreConfirm}
+        >
+          <div
+            className="settings-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="archive-restore-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="archive-restore-title">보관본 복원</h3>
+            <p>
+              <code>{restoreFileName}</code>
+              {restoreInfoLoading
+                ? " · 정보 불러오는 중…"
+                : restoreInfo
+                  ? ` · 민원 ${restoreInfo.complaintCount.toLocaleString("ko-KR")}건 · ${formatBytes(restoreInfo.bytes)}${restoreInfo.vaultEnabled ? " · 암호화됨" : ""}`
+                  : ""}
+            </p>
+            <form onSubmit={(e) => void onRestoreArchive(e)}>
+              <fieldset className="field" style={{ border: 0, padding: 0 }}>
+                <legend style={{ fontWeight: 600, marginBottom: "0.35rem" }}>
+                  복원 방식
+                </legend>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    alignItems: "flex-start",
+                    marginBottom: "0.35rem",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="restore-mode"
+                    checked={restoreMode === "merge"}
+                    onChange={() => setRestoreMode("merge")}
+                  />
+                  <span>
+                    민원만 병합 (권장) — 계정·2FA·스냅샷·감사 유지
+                    {restoreInfo?.vaultEnabled
+                      ? ". 보관 시점 비밀번호로 재암호화"
+                      : ""}
+                  </span>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="restore-mode"
+                    checked={restoreMode === "replace"}
+                    onChange={() => setRestoreMode("replace")}
+                  />
+                  <span>
+                    통째 교체 (위험) — 로그인·2FA·Vault가 보관 시점으로 되돌아가며
+                    재로그인 필요. 현재 활성은 자동 백업됩니다.
+                  </span>
+                </label>
+              </fieldset>
+              <label className="field">
+                현재 비밀번호
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  autoFocus
+                  value={restorePassword}
+                  onChange={(e) => setRestorePassword(e.target.value)}
+                  required
+                />
+              </label>
+              {restoreMode === "merge" && restoreInfo?.vaultEnabled && (
+                <label className="field">
+                  보관본 비밀번호 (아카이브 시점)
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={restoreVaultPassword}
+                    onChange={(e) => setRestoreVaultPassword(e.target.value)}
+                    required
+                    placeholder="비번 변경 전이면 현재와 동일"
+                  />
+                </label>
+              )}
+              {totpEnabled && (
+                <label className="field">
+                  2단계 인증 코드
+                  <input
+                    value={restoreTotpCode}
+                    onChange={(e) => setRestoreTotpCode(e.target.value)}
+                    required
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    placeholder="OTP 6자리 또는 복구 코드"
+                  />
+                </label>
+              )}
+              {restoreErr && (
+                <p className="settings-alert is-error">{restoreErr}</p>
+              )}
+              <div className="settings-confirm-actions">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={closeRestoreConfirm}
+                  disabled={restoring}
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className={
+                    restoreMode === "replace" ? "btn btn-danger" : "btn btn-primary"
+                  }
+                  disabled={restoring || restoreInfoLoading}
+                >
+                  {restoring
+                    ? "복원 중…"
+                    : restoreMode === "replace"
+                      ? "통째 교체 실행"
+                      : "민원 병합 실행"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirmOpen && deleteFileName && (
+        <div
+          className="settings-confirm-backdrop"
+          role="presentation"
+          onClick={closeDeleteConfirm}
+        >
+          <div
+            className="settings-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="archive-delete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="archive-delete-title">보관본 삭제 확인</h3>
+            <p>
+              <code>{deleteFileName}</code>을(를) 디스크에서 영구 삭제합니다.
+              {deleteInfoLoading
+                ? " 정보 불러오는 중…"
+                : deleteInfo
+                  ? ` 민원 ${deleteInfo.complaintCount.toLocaleString("ko-KR")}건 · ${formatBytes(deleteInfo.bytes)}.`
+                  : ""}{" "}
+              되돌릴 수 없습니다. 계속하려면 비밀번호
+              {totpEnabled ? "와 2단계 인증 코드" : ""}를 입력하세요.
+            </p>
+            <form onSubmit={(e) => void onDeleteArchive(e)}>
+              <label className="field">
+                비밀번호
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  autoFocus
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  required
+                />
+              </label>
+              {totpEnabled && (
+                <label className="field">
+                  2단계 인증 코드
+                  <input
+                    value={deleteTotpCode}
+                    onChange={(e) => setDeleteTotpCode(e.target.value)}
+                    required
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    placeholder="OTP 6자리 또는 복구 코드"
+                  />
+                </label>
+              )}
+              {deleteErr && (
+                <p className="settings-alert is-error">{deleteErr}</p>
+              )}
+              <div className="settings-confirm-actions">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={closeDeleteConfirm}
+                  disabled={deleting}
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-danger"
+                  disabled={deleting || deleteInfoLoading}
+                >
+                  {deleting ? "삭제 중…" : "영구 삭제"}
                 </button>
               </div>
             </form>

@@ -26,6 +26,7 @@ export const SEED_COMPLAINTS: Complaint[] = [
     photos: [],
     remark: null,
     dongCode: "우아2동",
+    importKey: null,
   },
   {
     id: "2",
@@ -50,14 +51,16 @@ export const SEED_COMPLAINTS: Complaint[] = [
     photos: [],
     remark: null,
     dongCode: "조촌동",
+    importKey: null,
   },
 ];
 
 export function normalizeComplaint(
-  partial: Omit<Complaint, "receiptRouteGroup" | "dongCode" | "photos"> & {
+  partial: Omit<Complaint, "receiptRouteGroup" | "dongCode" | "photos" | "importKey"> & {
     receiptRouteGroup?: Complaint["receiptRouteGroup"];
     dongCode?: string | null;
     photos?: Complaint["photos"];
+    importKey?: string | null;
   },
 ): Complaint {
   const photos = coercePhotos(partial);
@@ -65,6 +68,7 @@ export function normalizeComplaint(
   return {
     ...partial,
     ...synced,
+    importKey: partial.importKey ?? null,
     receiptRouteGroup:
       partial.receiptRouteGroup ?? inferRouteGroup(partial.receiptRouteCode),
     dongCode: partial.dongCode ?? inferDongCode(partial.receiptRouteCode),

@@ -6,6 +6,13 @@ export async function apiListComplaints(): Promise<Complaint[]> {
   return data.complaints;
 }
 
+export async function apiGetComplaint(id: string): Promise<Complaint> {
+  const data = await apiRequest<{ complaint: Complaint }>(
+    `/api/complaints/${encodeURIComponent(id)}`,
+  );
+  return data.complaint;
+}
+
 export async function apiUpsertComplaint(
   input: ComplaintInput,
 ): Promise<Complaint> {
@@ -26,6 +33,9 @@ export async function apiAddComplaints(
       body: JSON.stringify({ items: inputs }),
     },
   );
+  if (!Array.isArray(data.complaints) || data.complaints.length === 0) {
+    throw new Error("서버가 등록 결과를 반환하지 않았습니다.");
+  }
   return data.complaints;
 }
 

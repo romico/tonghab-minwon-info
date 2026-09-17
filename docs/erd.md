@@ -2,12 +2,13 @@
 
 > 코드 기준일: 2026-09-15  
 > 스키마 원천: `server/db.ts`, `server/auth.ts`, `server/audit.ts`  
-> 관련 문서: [아키텍처](./architecture.md) · [데이터 흐름(Mermaid)](./data-flow.md) · [사진·민원카드 정책](./photo-hwpx-policy.md) · [보고서 스키마](./report-schema.md)
+> 관련 문서: [아키텍처](./architecture.md) · [데이터 흐름(Mermaid)](./data-flow.md) · [사진·민원카드 정책](./photo-hwpx-policy.md) · [저장 용량·성능 분산 방향](./storage-scaling-decision.md) · [보고서 스키마](./report-schema.md)
 
 마이그레이션 파일은 없습니다. 기동 시 `CREATE TABLE IF NOT EXISTS`만 실행합니다.  
 `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON`.
 
-DB 파일: `data/tonghab-minwon.db` (환경변수 `TM_DATA_DIR`로 디렉터리 변경 가능)
+DB 파일: `data/tonghab-minwon.db` (환경변수 `TM_DATA_DIR`로 디렉터리 변경 가능)  
+아카이브: `data/archives/tonghab-minwon-{label}.db` (설정 → 아카이브 전환)
 
 ---
 
@@ -89,8 +90,9 @@ CREATE INDEX IF NOT EXISTS idx_complaints_notified ON complaints(notified_at);
 CREATE INDEX IF NOT EXISTS idx_complaints_received ON complaints(received_at);
 ```
 
-- 빈 DB면 `SEED_COMPLAINTS` 샘플 삽입.
-- `reset-seed` 시 민원·보고 스냅샷을 비우고 민원만 샘플로 복원(계정·세션·감사·설정 유지).
+- **신규** DB 파일이면 `SEED_COMPLAINTS` 샘플 삽입. 기존 파일에서 민원 0건이어도 샘플을 다시 넣지 않음.
+- `reset-seed` 시 민원·보고 스냅샷을 비우고 민원만 샘플로 복원(계정·세션·감사·설정 유지). 감사 로그는 API에서 별도 비움.
+- 아카이브 전환 시 활성 `complaints`만 비움(스냅샷·감사·계정 유지). 보관본은 `archives/` 파일.
 
 ### 2.2 `users`
 
