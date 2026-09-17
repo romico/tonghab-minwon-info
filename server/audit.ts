@@ -16,7 +16,8 @@ export type AuditAction =
   | "COMPLAINT_BATCH_CREATE"
   | "COMPLAINT_REPLACE"
   | "COMPLAINT_RESET_SEED"
-  | "SNAPSHOT_FREEZE";
+  | "SNAPSHOT_FREEZE"
+  | "UPDATE_APPLY";
 
 export interface AuditLog {
   id: number;

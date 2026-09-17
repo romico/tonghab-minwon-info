@@ -15,8 +15,10 @@ docs/*.xlsx
 # SQLite
 data/*.db
 data/*.db-*
+data/github-token.txt
 
 # Windows portable release
 release-win/
 .cache/
+updates/
 tonghab-minwon-info-windows*.zip

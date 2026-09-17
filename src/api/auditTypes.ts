@@ -10,7 +10,8 @@ export type AuditAction =
   | "COMPLAINT_BATCH_CREATE"
   | "COMPLAINT_REPLACE"
   | "COMPLAINT_RESET_SEED"
-  | "SNAPSHOT_FREEZE";
+  | "SNAPSHOT_FREEZE"
+  | "UPDATE_APPLY";
 
 export interface AuditLog {
   id: number;
@@ -39,4 +40,5 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   COMPLAINT_REPLACE: "민원 전체교체",
   COMPLAINT_RESET_SEED: "DB 초기화",
   SNAPSHOT_FREEZE: "보고 스냅샷 확정",
+  UPDATE_APPLY: "앱 업데이트",
 };

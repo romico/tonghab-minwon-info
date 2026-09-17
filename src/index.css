@@ -1055,6 +1055,54 @@ textarea {
   flex-shrink: 0;
 }
 
+.update-available-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.update-available-banner p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.update-available-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-update-notes {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.settings-update-notes summary {
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 13px;
+}
+
+.settings-update-notes pre {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 
 .settings-recovery {
   padding: 12px;

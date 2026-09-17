@@ -7,6 +7,12 @@ import {
   apiTotpSetup,
   apiUpdateSettings,
 } from "@/api/auth";
+import {
+  apiApplyUpdate,
+  apiCheckUpdate,
+  apiGetVersion,
+  type UpdateCheckResult,
+} from "@/api/updates";
 import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
 
@@ -47,6 +53,14 @@ export function SettingsPage() {
   const [disablePassword, setDisablePassword] = useState("");
   const [disableCode, setDisableCode] = useState("");
 
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+  const [updateErr, setUpdateErr] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
+  const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false);
+
   useEffect(() => {
     void apiGetSettings()
       .then((s) => {
@@ -60,7 +74,67 @@ export function SettingsPage() {
       .catch((err: unknown) => {
         setSettingsErr(err instanceof Error ? err.message : "설정 로드 실패");
       });
+    void apiGetVersion()
+      .then((v) => setAppVersion(v.version))
+      .catch(() => setAppVersion(null));
   }, []);
+
+  async function onCheckUpdate() {
+    setUpdateMsg(null);
+    setUpdateErr(null);
+    setCheckingUpdate(true);
+    try {
+      const result = await apiCheckUpdate();
+      setUpdateInfo(result);
+      setAppVersion(result.currentVersion);
+      if (result.error) {
+        setUpdateErr(result.error);
+      } else if (result.updateAvailable) {
+        setUpdateMsg(
+          `새 버전 ${result.latestVersion}을(를) 사용할 수 있습니다.`,
+        );
+      } else {
+        setUpdateMsg("이미 최신 버전입니다.");
+      }
+    } catch (err) {
+      setUpdateErr(err instanceof Error ? err.message : "업데이트 확인 실패");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function onApplyUpdate() {
+    if (!updateInfo?.updateAvailable) return;
+    setUpdateMsg(null);
+    setUpdateErr(null);
+    setApplyingUpdate(true);
+    try {
+      const result = await apiApplyUpdate({
+        downloadUrl: updateInfo.downloadUrl ?? undefined,
+        targetVersion: updateInfo.latestVersion ?? undefined,
+      });
+      setUpdateConfirmOpen(false);
+      setUpdateMsg(result.message);
+      // 서버 재시작 대기 후 새로고침
+      const started = Date.now();
+      const poll = window.setInterval(() => {
+        void fetch("/api/health")
+          .then((r) => {
+            if (r.ok && Date.now() - started > 2500) {
+              window.clearInterval(poll);
+              window.location.reload();
+            }
+          })
+          .catch(() => {
+            /* still restarting */
+          });
+      }, 1500);
+      window.setTimeout(() => window.clearInterval(poll), 120_000);
+    } catch (err) {
+      setUpdateErr(err instanceof Error ? err.message : "업데이트 적용 실패");
+      setApplyingUpdate(false);
+    }
+  }
 
   async function onSaveTtl(e: FormEvent) {
     e.preventDefault();
@@ -234,9 +308,111 @@ export function SettingsPage() {
       <div className="page-header">
         <div>
           <h1>설정</h1>
-          <p>세션, 보안(암호화·2FA), 비밀번호, DB 초기화를 관리합니다.</p>
+          <p>
+            버전 업데이트, 세션, 보안(암호화·2FA), 비밀번호, DB 초기화를
+            관리합니다.
+          </p>
         </div>
         {user && <span className="badge">{user.username}</span>}
+      </div>
+
+      <div className="panel settings-panel">
+        <div className="panel-head">
+          <h2>버전 및 업데이트</h2>
+          <span className="badge">
+            {appVersion ? `v${appVersion}` : "확인 중…"}
+          </span>
+        </div>
+        <div className="panel-body settings-panel-body">
+          <p className="settings-lead">
+            GitHub Release의 최신 포터블 패키지를 확인합니다. 자동 적용은
+            Windows 포터블에서만 가능하며, <code>data</code> 폴더(민원 DB)는
+            그대로 유지됩니다. 비공개 저장소인 경우{" "}
+            <code>data/github-token.txt</code>에 읽기 전용 PAT를 저장하세요.
+          </p>
+          {updateErr && <p className="settings-alert is-error">{updateErr}</p>}
+          {updateMsg && <p className="settings-alert is-ok">{updateMsg}</p>}
+          <div className="settings-status">
+            <div className="settings-stat">
+              <span className="settings-stat-label">현재 버전</span>
+              <strong className="settings-stat-value settings-stat-value-sm">
+                {updateInfo?.currentVersion ?? appVersion ?? "—"}
+              </strong>
+            </div>
+            <div className="settings-stat">
+              <span className="settings-stat-label">최신 버전</span>
+              <strong className="settings-stat-value settings-stat-value-sm">
+                {updateInfo?.latestVersion ?? "—"}
+              </strong>
+            </div>
+            <div className="settings-stat">
+              <span className="settings-stat-label">상태</span>
+              <strong className="settings-stat-value settings-stat-value-sm">
+                {updateInfo == null
+                  ? "미확인"
+                  : updateInfo.updateAvailable
+                    ? "업데이트 가능"
+                    : updateInfo.error
+                      ? "확인 실패"
+                      : "최신"}
+              </strong>
+            </div>
+          </div>
+          {updateInfo?.releaseNotes && (
+            <details className="settings-update-notes">
+              <summary>릴리스 노트</summary>
+              <pre>{updateInfo.releaseNotes}</pre>
+            </details>
+          )}
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="btn"
+              disabled={checkingUpdate || applyingUpdate}
+              onClick={() => void onCheckUpdate()}
+            >
+              {checkingUpdate ? "확인 중…" : "최신 버전 확인"}
+            </button>
+            {updateInfo?.updateAvailable && updateInfo.canApply && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={applyingUpdate || checkingUpdate}
+                onClick={() => setUpdateConfirmOpen(true)}
+              >
+                {applyingUpdate ? "적용 중…" : "지금 업데이트"}
+              </button>
+            )}
+            {updateInfo?.updateAvailable &&
+              !updateInfo.canApply &&
+              updateInfo.downloadUrl && (
+                <a
+                  className="btn btn-primary"
+                  href={updateInfo.downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  ZIP 다운로드
+                </a>
+              )}
+            {updateInfo?.htmlUrl && (
+              <a
+                className="btn"
+                href={updateInfo.htmlUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                릴리스 페이지
+              </a>
+            )}
+          </div>
+          {updateInfo?.updateAvailable && !updateInfo.canApply && (
+            <p className="settings-help">
+              이 환경에서는 자동 적용이 불가합니다. ZIP을 받은 뒤{" "}
+              <code>data</code> 폴더를 유지한 채 파일을 교체하세요.
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="panel settings-panel">
@@ -655,6 +831,48 @@ export function SettingsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {updateConfirmOpen && updateInfo && (
+        <div
+          className="settings-confirm-backdrop"
+          role="presentation"
+          onClick={() => !applyingUpdate && setUpdateConfirmOpen(false)}
+        >
+          <div
+            className="settings-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-apply-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="update-apply-title">업데이트 적용 확인</h3>
+            <p>
+              v{updateInfo.currentVersion} → v{updateInfo.latestVersion}으로
+              업데이트합니다. 서버가 잠시 재시작되며{" "}
+              <code>data</code> 폴더의 민원 데이터는 유지됩니다. 인터넷에서
+              패키지를 다운로드하므로 수 분이 걸릴 수 있습니다.
+            </p>
+            <div className="settings-confirm-actions">
+              <button
+                type="button"
+                className="btn"
+                disabled={applyingUpdate}
+                onClick={() => setUpdateConfirmOpen(false)}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={applyingUpdate}
+                onClick={() => void onApplyUpdate()}
+              >
+                {applyingUpdate ? "다운로드·적용 중…" : "업데이트 실행"}
+              </button>
+            </div>
           </div>
         </div>
       )}

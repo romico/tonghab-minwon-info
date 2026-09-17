@@ -43,6 +43,12 @@ import {
   listSnapshots,
 } from "./snapshots.ts";
 import { getVaultStatus, VaultLockedError } from "./vault.ts";
+import {
+  applyUpdate,
+  checkForUpdate,
+  getCurrentVersion,
+  isPortableInstall,
+} from "./update.ts";
 import type { Complaint, ComplaintInput } from "../src/schema/index.ts";
 import { maskName, maskPhone } from "../src/lib/privacy.ts";
 
@@ -200,7 +206,60 @@ function auditComplaintMutation(
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, db: DB_PATH });
+  res.json({
+    ok: true,
+    db: DB_PATH,
+    version: getCurrentVersion(),
+    portable: isPortableInstall(),
+  });
+});
+
+app.get("/api/version", (_req, res) => {
+  res.json({
+    version: getCurrentVersion(),
+    portable: isPortableInstall(),
+  });
+});
+
+app.get("/api/updates/check", requireAuth, async (_req, res) => {
+  try {
+    const result = await checkForUpdate();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "업데이트 확인 실패",
+    });
+  }
+});
+
+app.post("/api/updates/apply", requireAuth, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as {
+      downloadUrl?: string;
+      targetVersion?: string;
+    };
+    const result = await applyUpdate({
+      downloadUrl: body.downloadUrl,
+      targetVersion: body.targetVersion,
+    });
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "UPDATE_APPLY",
+      resourceType: "app",
+      resourceId: result.toVersion,
+      summary: `앱 업데이트 적용: ${result.fromVersion} → ${result.toVersion}`,
+      detail: {
+        fromVersion: result.fromVersion,
+        toVersion: result.toVersion,
+      },
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "업데이트 적용 실패",
+    });
+  }
 });
 
 app.post("/api/auth/login", (req, res) => {

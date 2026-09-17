@@ -88,7 +88,7 @@ mkdirSync(join(outDir, "data"), { recursive: true });
 mkdirSync(join(outDir, "runtime"), { recursive: true });
 writeFileSync(
   join(outDir, "data", "README.txt"),
-  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n",
+  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n\n비공개 GitHub 업데이트용: github-token.txt 에 읽기 전용 PAT를 한 줄로 저장하세요.\n",
   "utf8",
 );
 
@@ -141,6 +141,7 @@ const batBody = [
   "set NODE_ENV=production",
   "set PORT=8787",
   "set HOST=127.0.0.1",
+  "set TM_PORTABLE=1",
   "",
   "echo.",
   "echo ========================================",
@@ -184,6 +185,12 @@ writeFileSync(
 ■ 데이터
   - data\\tonghab-minwon.db 에 저장됩니다.
   - 폴더 전체를 복사하면 데이터도 함께 이동합니다.
+
+■ 업데이트
+  - 설정 → "버전 및 업데이트"에서 최신 버전을 확인하고 적용할 수 있습니다.
+  - 자동 업데이트는 data 폴더를 유지한 채 앱 파일만 교체합니다.
+  - 비공개 GitHub 저장소: data\\github-token.txt 에 contents:read PAT를 한 줄로 저장
+  - 수동 시: 새 ZIP 해제 후 data 폴더를 그대로 옮기세요.
 
 ■ 포트 변경
   - my-minwon-server.bat 의 set PORT=8787 값을 수정하세요.
