@@ -461,13 +461,19 @@ export async function parseHwpxFile(file: File): Promise<HwpxImportDraft> {
   return buildDraftFromTokens(tokens, file.name, photos);
 }
 
-export async function parseHwpxFiles(files: FileList | File[]): Promise<{
+export async function parseHwpxFiles(
+  files: FileList | File[],
+  onProgress?: (done: number, total: number, fileName: string) => void,
+): Promise<{
   drafts: HwpxImportDraft[];
   errors: string[];
 }> {
+  const list = Array.from(files);
   const drafts: HwpxImportDraft[] = [];
   const errors: string[] = [];
-  for (const file of Array.from(files)) {
+  for (let i = 0; i < list.length; i++) {
+    const file = list[i]!;
+    onProgress?.(i, list.length, file.name);
     if (!file.name.toLowerCase().endsWith(".hwpx")) {
       errors.push(`${file.name}: HWPX 파일만 지원합니다.`);
       continue;
@@ -477,6 +483,9 @@ export async function parseHwpxFiles(files: FileList | File[]): Promise<{
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
     }
+  }
+  if (list.length > 0) {
+    onProgress?.(list.length, list.length, list[list.length - 1]!.name);
   }
   return { drafts, errors };
 }

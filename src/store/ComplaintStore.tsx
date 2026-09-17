@@ -86,7 +86,10 @@ interface StoreValue {
   clearPeriod: () => void;
   periodLoading: boolean;
   upsertComplaint: (input: ComplaintInput) => Promise<void>;
-  addComplaints: (inputs: ComplaintInput[]) => Promise<number>;
+  addComplaints: (
+    inputs: ComplaintInput[],
+    onProgress?: (done: number, total: number) => void,
+  ) => Promise<number>;
   deleteComplaint: (id: string) => Promise<void>;
   resetSeed: (password: string, totpCode?: string) => Promise<void>;
   departmentStatus: DepartmentStatusRow[];
@@ -224,11 +227,23 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const addComplaints = useCallback(async (inputs: ComplaintInput[]) => {
-    const items = await apiAddComplaints(inputs);
-    setComplaints((prev) => [...prev, ...items]);
-    return items.length;
-  }, []);
+  const addComplaints = useCallback(
+    async (
+      inputs: ComplaintInput[],
+      onProgress?: (done: number, total: number) => void,
+    ) => {
+      // 사진 base64 포함 시 일괄 JSON이 서버 limit을 넘기기 쉬워 건별 등록한다.
+      const created: Complaint[] = [];
+      for (let i = 0; i < inputs.length; i++) {
+        const items = await apiAddComplaints([inputs[i]!]);
+        created.push(...items);
+        setComplaints((prev) => [...prev, ...items]);
+        onProgress?.(i + 1, inputs.length);
+      }
+      return created.length;
+    },
+    [],
+  );
 
   const deleteComplaint = useCallback(async (id: string) => {
     await apiDeleteComplaint(id);
