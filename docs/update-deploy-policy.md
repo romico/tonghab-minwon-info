@@ -63,6 +63,7 @@ npm run deploy:landing     # 소개 사이트
 | `tonghab-minwon-info-*-portable-v{ver}.zip` | 플랫폼별 포터블 패키지 |
 | `update.json` / `update.ini` | 버전·플랫폼별 URL·SHA-256·크기 |
 | 패키지 내 `readme.txt` | 실행·로그인·백업·업데이트 안내 |
+| `my-minwon-server.bat` / `.sh` | TUI 메뉴(실행·중지·재실행·강제종료·종료). 강제종료 시 PID·포트·`server.cjs` 고아 프로세스 정리 |
 | `data/README.txt` | DB·archives 백업 안내 |
 | `runtime/` | 번들 Node 22 |
 | `server.cjs` + `dist/` | API·프론트 정적 파일 |

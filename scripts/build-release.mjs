@@ -4,6 +4,7 @@
  * - Node.js 런타임 내장 → PC에 Node 설치 불필요
  * - 사용: node scripts/build-release.mjs [--platform win32-x64|linux-x64|darwin-arm64|darwin-x64]
  *         node scripts/build-release.mjs --all
+ *         node scripts/build-release.mjs --launchers-only   # 런처·readme만 갱신
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -172,9 +173,15 @@ function findExtractedNodeDir(extractRoot, hint) {
 function writeBatLauncher(outDir) {
   const batBody = [
     "@echo off",
+    "setlocal EnableExtensions EnableDelayedExpansion",
     "cd /d \"%~dp0\"",
+    "chcp 65001 >nul 2>&1",
     "",
     "set \"NODE_EXE=%~dp0runtime\\node.exe\"",
+    "set \"PID_FILE=%~dp0data\\server.pid\"",
+    "set \"LOG_FILE=%~dp0data\\server.log\"",
+    "set \"ROOT=%~dp0\"",
+    "",
     "if not exist \"%NODE_EXE%\" (",
     "  echo.",
     "  echo [ERROR] runtime\\node.exe not found.",
@@ -184,67 +191,359 @@ function writeBatLauncher(outDir) {
     "  exit /b 1",
     ")",
     "",
+    "if not exist \"%~dp0data\" mkdir \"%~dp0data\"",
+    "",
     "set NODE_ENV=production",
-    "set PORT=8787",
-    "set HOST=127.0.0.1",
+    "if not defined PORT set PORT=8787",
+    "if not defined HOST set HOST=127.0.0.1",
     "set TM_PORTABLE=1",
     "",
-    "echo.",
+    ":menu",
+    "cls",
+    "call :status",
     "echo ========================================",
-    "echo  Tonghab Minwon Info (portable)",
-    "echo  http://127.0.0.1:8787",
-    "echo  login: admin / admin",
-    "echo  stop:  Ctrl+C in this window",
+    "echo  통합민원정보 (portable)",
+    "echo  http://%HOST%:%PORT%",
+    "echo  상태: !STATUS_TEXT!",
     "echo ========================================",
     "echo.",
+    "echo   1^) 실행",
+    "echo   2^) 중지",
+    "echo   3^) 재실행",
+    "echo   4^) 강제종료",
+    "echo   5^) 종료",
+    "echo.",
+    "set \"CHOICE=\"",
+    "set /p \"CHOICE=선택 [1-5]: \"",
+    "if \"!CHOICE!\"==\"1\" goto do_start",
+    "if \"!CHOICE!\"==\"2\" goto do_stop",
+    "if \"!CHOICE!\"==\"3\" goto do_restart",
+    "if \"!CHOICE!\"==\"4\" goto do_force",
+    "if \"!CHOICE!\"==\"5\" goto do_exit",
+    "echo.",
+    "echo 잘못된 선택입니다.",
+    "timeout /t 1 >nul",
+    "goto menu",
     "",
-    "start \"\" \"http://127.0.0.1:8787\"",
-    "\"%NODE_EXE%\" --experimental-sqlite server.cjs",
-    "set EXITCODE=%ERRORLEVEL%",
-    "if not %EXITCODE%==0 (",
-    "  echo.",
-    "  echo Server exited with error code %EXITCODE%.",
-    "  pause",
+    ":do_start",
+    "call :start_server",
+    "echo.",
+    "pause",
+    "goto menu",
+    "",
+    ":do_stop",
+    "call :stop_server 0",
+    "echo.",
+    "pause",
+    "goto menu",
+    "",
+    ":do_restart",
+    "call :stop_server 0",
+    "timeout /t 1 >nul",
+    "call :start_server",
+    "echo.",
+    "pause",
+    "goto menu",
+    "",
+    ":do_force",
+    "call :stop_server 1",
+    "echo.",
+    "pause",
+    "goto menu",
+    "",
+    ":do_exit",
+    "echo.",
+    "echo 메뉴를 종료합니다. (서버는 별도로 중지하지 않습니다)",
+    "echo.",
+    "endlocal",
+    "exit /b 0",
+    "",
+    ":status",
+    "set \"STATUS_TEXT=중지됨\"",
+    "set \"SERVER_PID=\"",
+    "if exist \"%PID_FILE%\" (",
+    "  set /p SERVER_PID=<\"%PID_FILE%\"",
+    "  if defined SERVER_PID (",
+    "    tasklist /FI \"PID eq !SERVER_PID!\" 2>nul | findstr /I \"!SERVER_PID!\" >nul",
+    "    if not errorlevel 1 (",
+    "      set \"STATUS_TEXT=실행 중 (PID !SERVER_PID!)\"",
+    "      exit /b 0",
+    "    )",
+    "  )",
+    "  del /f /q \"%PID_FILE%\" >nul 2>&1",
     ")",
-    "exit /b %EXITCODE%",
+    "for /f \"tokens=5\" %%P in ('netstat -ano 2^>nul ^| findstr /R /C\":%PORT% .*LISTENING\"') do (",
+    "  set \"STATUS_TEXT=실행 중 (포트 %PORT% / PID %%P)\"",
+    "  set \"SERVER_PID=%%P\"",
+    "  exit /b 0",
+    ")",
+    "exit /b 1",
+    "",
+    ":start_server",
+    "call :status",
+    "if not errorlevel 1 (",
+    "  echo 이미 실행 중입니다. !STATUS_TEXT!",
+    "  exit /b 0",
+    ")",
+    "echo 서버를 시작합니다...",
+    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$p = Start-Process -FilePath '%NODE_EXE%' -ArgumentList '--experimental-sqlite','server.cjs' -WorkingDirectory '%ROOT%' -WindowStyle Hidden -PassThru; Set-Content -LiteralPath '%PID_FILE%' -Value $p.Id -Encoding ascii\"",
+    "if errorlevel 1 (",
+    "  echo [ERROR] 서버 기동에 실패했습니다.",
+    "  exit /b 1",
+    ")",
+    "timeout /t 1 >nul",
+    "call :status",
+    "if errorlevel 1 (",
+    "  echo [ERROR] 프로세스가 바로 종료되었습니다. data\\server.log 를 확인하세요.",
+    "  exit /b 1",
+    ")",
+    "echo 시작됨: !STATUS_TEXT!",
+    "echo URL: http://%HOST%:%PORT%",
+    "start \"\" \"http://%HOST%:%PORT%\"",
+    "exit /b 0",
+    "",
+    ":stop_server",
+    "set \"FORCE=%~1\"",
+    "if \"!FORCE!\"==\"1\" (",
+    "  echo 강제 종료합니다. ^(PID·포트·고아 프로세스^)",
+    "  call :kill_orphans",
+    "  del /f /q \"%PID_FILE%\" >nul 2>&1",
+    "  echo 중지되었습니다.",
+    "  exit /b 0",
+    ")",
+    "call :status",
+    "if errorlevel 1 (",
+    "  echo 실행 중인 서버가 없습니다.",
+    "  del /f /q \"%PID_FILE%\" >nul 2>&1",
+    "  exit /b 0",
+    ")",
+    "echo 중지합니다...",
+    "if defined SERVER_PID (",
+    "  taskkill /PID !SERVER_PID! >nul 2>&1",
+    "  timeout /t 2 >nul",
+    "  tasklist /FI \"PID eq !SERVER_PID!\" 2>nul | findstr /I \"!SERVER_PID!\" >nul",
+    "  if not errorlevel 1 taskkill /PID !SERVER_PID! /F /T >nul 2>&1",
+    ") else (",
+    "  for /f \"tokens=5\" %%P in ('netstat -ano 2^>nul ^| findstr /R /C\":%PORT% .*LISTENING\"') do taskkill /PID %%P >nul 2>&1",
+    ")",
+    "del /f /q \"%PID_FILE%\" >nul 2>&1",
+    "echo 중지되었습니다.",
+    "exit /b 0",
+    "",
+    ":kill_orphans",
+    "if exist \"%PID_FILE%\" (",
+    "  set /p SERVER_PID=<\"%PID_FILE%\"",
+    "  if defined SERVER_PID taskkill /PID !SERVER_PID! /F /T >nul 2>&1",
+    ")",
+    "for /f \"tokens=5\" %%P in ('netstat -ano 2^>nul ^| findstr /R /C\":%PORT% .*LISTENING\"') do (",
+    "  echo  - 포트 %PORT% 리스너 종료: PID %%P",
+    "  taskkill /PID %%P /F /T >nul 2>&1",
+    ")",
+    "powershell -NoProfile -ExecutionPolicy Bypass -Command ^\"$ErrorActionPreference='SilentlyContinue'; $root=(Resolve-Path -LiteralPath '.').Path; $port=[int]$env:PORT; if(-not $port){$port=%PORT%}; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($root) -and $_.CommandLine -match 'server\\.cjs' } | ForEach-Object { Write-Host (' - orphan PID ' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force }; try { Get-NetTCPConnection -LocalPort $port -State Listen | ForEach-Object { Write-Host (' - port PID ' + $_.OwningProcess); Stop-Process -Id $_.OwningProcess -Force } } catch {}\"",
+    "exit /b 0",
     "",
   ].join("\r\n");
-  writeFileSync(join(outDir, "my-minwon-server.bat"), batBody, "latin1");
+  writeFileSync(
+    join(outDir, "my-minwon-server.bat"),
+    `\ufeff${batBody}`,
+    "utf8",
+  );
 }
 
 function writeShLauncher(outDir) {
   const sh = `#!/usr/bin/env bash
-set -euo pipefail
 cd "$(dirname "$0")"
 
 NODE_BIN="$(pwd)/runtime/node"
+PID_FILE="$(pwd)/data/server.pid"
+LOG_FILE="$(pwd)/data/server.log"
+
 if [[ ! -x "$NODE_BIN" ]]; then
   echo "[ERROR] runtime/node not found or not executable."
   echo "        Re-extract the portable ZIP and try again."
   exit 1
 fi
 
+mkdir -p data
+
 export NODE_ENV=production
 export PORT="\${PORT:-8787}"
 export HOST="\${HOST:-127.0.0.1}"
 export TM_PORTABLE=1
 
-echo
-echo "========================================"
-echo " Tonghab Minwon Info (portable)"
-echo " http://\${HOST}:\${PORT}"
-echo " login: admin / admin"
-echo " stop:  Ctrl+C"
-echo "========================================"
-echo
+is_running() {
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      echo "$pid"
+      return 0
+    fi
+    rm -f "$PID_FILE"
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    local p
+    p="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$p" ]]; then
+      echo "$p"
+      return 0
+    fi
+  fi
+  local orphan
+  orphan="$(find_orphan_pids | head -n 1 || true)"
+  if [[ -n "$orphan" ]]; then
+    echo "$orphan"
+    return 0
+  fi
+  return 1
+}
 
-if command -v open >/dev/null 2>&1; then
-  open "http://\${HOST}:\${PORT}" >/dev/null 2>&1 || true
-elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "http://\${HOST}:\${PORT}" >/dev/null 2>&1 || true
-fi
+find_orphan_pids() {
+  local root cmd pid
+  root="$(pwd)"
+  if command -v pgrep >/dev/null 2>&1; then
+    pgrep -f "${root}/server\\.cjs" 2>/dev/null || true
+    pgrep -f "server\\.cjs" 2>/dev/null | while read -r pid; do
+      [[ -z "$pid" ]] && continue
+      cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+      case "$cmd" in
+        *"${root}/"*server.cjs*|*"${root}/runtime/node"*) echo "$pid" ;;
+      esac
+    done
+    return 0
+  fi
+  ps -ax -o pid=,command= 2>/dev/null | while read -r pid cmd; do
+    case "$cmd" in
+      *"${root}/server.cjs"*|*"${root}/runtime/node"*"server.cjs"*) echo "$pid" ;;
+    esac
+  done
+}
 
-exec "$NODE_BIN" --experimental-sqlite server.cjs
+status_text() {
+  local pid
+  if pid="$(is_running)"; then
+    echo "실행 중 (PID $pid)"
+  else
+    echo "중지됨"
+  fi
+}
+
+open_browser() {
+  if command -v open >/dev/null 2>&1; then
+    open "http://\${HOST}:\${PORT}" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "http://\${HOST}:\${PORT}" >/dev/null 2>&1 || true
+  fi
+}
+
+start_server() {
+  local pid
+  if pid="$(is_running)"; then
+    echo "이미 실행 중입니다. (PID $pid)"
+    return 0
+  fi
+  echo "서버를 시작합니다..."
+  nohup "$NODE_BIN" --experimental-sqlite server.cjs >>"$LOG_FILE" 2>&1 &
+  echo $! >"$PID_FILE"
+  sleep 1
+  if pid="$(is_running)"; then
+    echo "시작됨: PID $pid"
+    echo "URL: http://\${HOST}:\${PORT}"
+    echo "로그: $LOG_FILE"
+    open_browser
+  else
+    echo "[ERROR] 프로세스가 바로 종료되었습니다. $LOG_FILE 을 확인하세요."
+    rm -f "$PID_FILE"
+    return 1
+  fi
+}
+
+kill_orphans() {
+  local pid p
+  if [[ -f "$PID_FILE" ]]; then
+    pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$pid" ]]; then
+      echo " - PID 파일 프로세스 종료: $pid"
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    for p in $(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true); do
+      echo " - 포트 $PORT 리스너 종료: PID $p"
+      kill -KILL "$p" 2>/dev/null || true
+    done
+  fi
+  for p in $(find_orphan_pids | sort -u); do
+    if kill -0 "$p" 2>/dev/null; then
+      echo " - 고아 프로세스 종료: PID $p"
+      kill -KILL "$p" 2>/dev/null || true
+    fi
+  done
+}
+
+stop_server() {
+  local force="\${1:-0}"
+  local pid
+  if [[ "$force" == "1" ]]; then
+    echo "강제 종료합니다. (PID·포트·고아 프로세스)"
+    kill_orphans
+    rm -f "$PID_FILE"
+    echo "중지되었습니다."
+    return 0
+  fi
+  if ! pid="$(is_running)"; then
+    echo "실행 중인 서버가 없습니다."
+    rm -f "$PID_FILE"
+    return 0
+  fi
+  echo "중지합니다... (PID $pid)"
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.4
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "응답이 없어 강제 종료합니다..."
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE"
+  echo "중지되었습니다."
+}
+
+while true; do
+  clear 2>/dev/null || true
+  echo "========================================"
+  echo " 통합민원정보 (portable)"
+  echo " http://\${HOST}:\${PORT}"
+  echo " 상태: $(status_text)"
+  echo "========================================"
+  echo
+  echo "  1) 실행"
+  echo "  2) 중지"
+  echo "  3) 재실행"
+  echo "  4) 강제종료"
+  echo "  5) 종료"
+  echo
+  read -r -p "선택 [1-5]: " choice
+  echo
+  case "$choice" in
+    1) start_server ;;
+    2) stop_server 0 ;;
+    3)
+      stop_server 0
+      sleep 0.5
+      start_server
+      ;;
+    4) stop_server 1 ;;
+    5)
+      echo "메뉴를 종료합니다. (서버는 별도로 중지하지 않습니다)"
+      exit 0
+      ;;
+    *) echo "잘못된 선택입니다." ;;
+  esac
+  echo
+  read -r -p "Enter 키를 누르면 메뉴로 돌아갑니다..." _
+done
 `;
   const path = join(outDir, "my-minwon-server.sh");
   writeFileSync(path, sh, "utf8");
@@ -267,15 +566,16 @@ function writeUsage(outDir, plat) {
 
 ■ 실행 방법
   1. ZIP을 원하는 위치에 압축 해제합니다.
-  2. "${launcher}" 를 실행합니다.
-  3. 브라우저에서 admin / admin 으로 로그인합니다.
+  2. "${launcher}" 를 실행합니다. (메뉴 TUI)
+  3. 메뉴에서 1) 실행 → 브라우저에서 admin / admin 으로 로그인합니다.
      · 초기 계정은 설정에서 변경하세요.
      · 로그인 시 개인정보 DB 암호화가 잠금 해제됩니다.
-  4. 종료: 콘솔에서 Ctrl+C
+  4. 메뉴: 1 실행 / 2 중지 / 3 재실행 / 4 강제종료(고아 프로세스 포함) / 5 종료
 
 ■ 데이터
   - data/tonghab-minwon.db 에 저장됩니다.
   - data/archives/ 에 관리연도·분기 아카이브가 보관됩니다.
+  - data/server.pid · data/server.log 는 런처가 관리합니다.
   - 백업·이전 시 data 폴더 전체(archives 포함)를 복사하세요.
   - 설정 화면에서 「아카이브 전환」「보관본 복원·삭제」를 사용할 수 있습니다.
 
@@ -414,6 +714,28 @@ async function buildPlatform(plat, shared) {
 }
 
 const targets = parseArgs(process.argv.slice(2));
+
+if (process.argv.includes("--launchers-only")) {
+  const ids = process.argv.includes("--platform")
+    ? targets
+    : Object.keys(PLATFORMS);
+  for (const id of ids) {
+    const plat = PLATFORMS[id];
+    if (!plat) continue;
+    const outDir = join(root, plat.outDirName);
+    if (!existsSync(outDir)) {
+      console.log(`skip ${plat.outDirName} (폴더 없음)`);
+      continue;
+    }
+    mkdirSync(join(outDir, "data"), { recursive: true });
+    if (plat.launcher === "bat") writeBatLauncher(outDir);
+    else writeShLauncher(outDir);
+    writeUsage(outDir, plat);
+    console.log(`launchers → ${plat.outDirName}`);
+  }
+  process.exit(0);
+}
+
 console.log(`포터블 빌드 대상: ${targets.join(", ")} (v${APP_VERSION})`);
 
 console.log("1/N 프론트엔드 빌드…");

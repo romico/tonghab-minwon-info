@@ -2,6 +2,16 @@
   "source": "CHANGELOG.md",
   "entries": [
     {
+      "version": "0.1.18",
+      "date": "2026-09-17",
+      "added": [
+        "포터블 런처 TUI(실행·중지·재실행·강제종료·종료), 고아 프로세스 강제 정리"
+      ],
+      "changed": [
+        "포터블 readme.txt를 TUI 메뉴 안내로 갱신"
+      ]
+    },
+    {
       "version": "0.1.17",
       "date": "2026-09-17",
       "added": [

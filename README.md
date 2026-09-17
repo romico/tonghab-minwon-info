@@ -6,7 +6,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | 0.1.17 ([변경 이력](./CHANGELOG.md)) |
+| 버전 | 0.1.18 ([변경 이력](./CHANGELOG.md)) |
 | 소개·다운로드 | https://minwon.uany.net/ |
 | 업데이트 피드 | https://update.uany.net/tonghab-minwon-info/update.json |
 | 기본 계정 | `admin` / `admin` (설정에서 변경 · 패키지 `readme.txt`에도 안내) |
