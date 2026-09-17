@@ -27,6 +27,14 @@ export interface UpdateApplyResult {
   message: string;
 }
 
+export interface UpdateConfig {
+  feedUrl: string | null;
+  feedUrlFromEnv: boolean;
+  githubTokenConfigured: boolean;
+  githubTokenFromEnv: boolean;
+  githubTokenHint: string | null;
+}
+
 export interface AppVersionInfo {
   version: string;
   portable: boolean;
@@ -38,6 +46,21 @@ export async function apiGetVersion(): Promise<AppVersionInfo> {
 
 export async function apiCheckUpdate(): Promise<UpdateCheckResult> {
   return apiRequest<UpdateCheckResult>("/api/updates/check");
+}
+
+export async function apiGetUpdateConfig(): Promise<UpdateConfig> {
+  return apiRequest<UpdateConfig>("/api/updates/config");
+}
+
+export async function apiSaveUpdateConfig(input: {
+  feedUrl?: string | null;
+  githubToken?: string | null;
+  clearGithubToken?: boolean;
+}): Promise<UpdateConfig> {
+  return apiRequest<UpdateConfig>("/api/updates/config", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function apiApplyUpdate(input?: {

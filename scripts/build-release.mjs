@@ -90,9 +90,20 @@ mkdirSync(join(outDir, "data"), { recursive: true });
 mkdirSync(join(outDir, "runtime"), { recursive: true });
 writeFileSync(
   join(outDir, "data", "README.txt"),
-  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n\n업데이트(권장): update-feed.url 파일에 update.json 주소를 한 줄로 저장하세요.\n비공개 GitHub 대안: github-token.txt 에 읽기 전용 PAT를 한 줄로 저장하세요.\n",
+  "이 폴더에 tonghab-minwon.db 가 자동 생성됩니다. 백업 시 이 폴더를 복사하세요.\n\n업데이트: 배포본에 GitHub 읽기 토큰이 포함되어 있으면 설정에서 바로 확인할 수 있습니다.\n토큰이 없으면 data\\github-token.txt 또는 data\\update-feed.url 을 추가하세요.\n",
   "utf8",
 );
+
+/** 비공개 릴리스 조회용 — CI secrets.TM_UPDATE_GITHUB_TOKEN 등으로 주입 */
+const embedToken = (
+  process.env.TM_UPDATE_GITHUB_TOKEN?.trim() ||
+  process.env.TM_GITHUB_TOKEN?.trim() ||
+  ""
+);
+if (embedToken) {
+  writeFileSync(join(outDir, "data", "github-token.txt"), `${embedToken}\n`, "utf8");
+  console.log("  data/github-token.txt 포함 (업데이트용)");
+}
 
 console.log("3/5 Windows Node 런타임 준비…");
 const zipPath = join(cacheDir, NODE_ZIP);
@@ -189,12 +200,9 @@ writeFileSync(
   - 폴더 전체를 복사하면 데이터도 함께 이동합니다.
 
 ■ 업데이트
-  - 설정 → "버전 및 업데이트"에서 최신 버전을 확인하고 적용할 수 있습니다.
-  - 권장: data\\update-feed.url 에 update.json(또는 update.ini) 주소 한 줄을 넣습니다.
-    예) https://files.example.com/tonghab/update.json
-  - 매니페스트에는 version, url, sha256 이 있어야 하며, 다운로드 후 체크섬을 검증합니다.
-  - GitHub Release를 쓰려면 data\\github-token.txt 에 contents:read PAT를 저장하세요.
-  - 자동 업데이트는 data 폴더를 유지한 채 앱 파일만 교체합니다.
+  - 설정 → "버전 및 업데이트"에서 확인·적용합니다 (SHA-256 검증, data 폴더 유지).
+  - 공식 배포 ZIP에는 업데이트용 읽기 토큰이 포함되어 별도 설정이 필요 없습니다.
+  - 사내 피드 사용 시: data\\update-feed.url 에 update.json 주소를 넣으세요.
   - 수동 시: 새 ZIP 해제 후 data 폴더를 그대로 옮기세요.
 
 ■ 포트 변경

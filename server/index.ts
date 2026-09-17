@@ -47,7 +47,9 @@ import {
   applyUpdate,
   checkForUpdate,
   getCurrentVersion,
+  getUpdateConfig,
   isPortableInstall,
+  saveUpdateConfig,
 } from "./update.ts";
 import type { Complaint, ComplaintInput } from "../src/schema/index.ts";
 import { maskName, maskPhone } from "../src/lib/privacy.ts";
@@ -228,6 +230,43 @@ app.get("/api/updates/check", requireAuth, async (_req, res) => {
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : "업데이트 확인 실패",
+    });
+  }
+});
+
+app.get("/api/updates/config", requireAuth, (_req, res) => {
+  res.json(getUpdateConfig());
+});
+
+app.put("/api/updates/config", requireAuth, (req, res) => {
+  try {
+    const body = (req.body ?? {}) as {
+      feedUrl?: string | null;
+      githubToken?: string | null;
+      clearGithubToken?: boolean;
+    };
+    const config = saveUpdateConfig({
+      feedUrl: body.feedUrl,
+      githubToken: body.githubToken,
+      clearGithubToken: body.clearGithubToken === true,
+    });
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "SETTINGS_UPDATE",
+      resourceType: "update_config",
+      resourceId: null,
+      summary: "업데이트 설정 변경",
+      detail: {
+        feedUrl: config.feedUrl,
+        githubTokenConfigured: config.githubTokenConfigured,
+        clearedToken: body.clearGithubToken === true,
+      },
+    });
+    res.json(config);
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "업데이트 설정 저장 실패",
     });
   }
 });

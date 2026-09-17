@@ -49,6 +49,7 @@ jobs:
         run: npm run release:win
         env:
           CI: "true"
+          TM_UPDATE_GITHUB_TOKEN: ${{ secrets.TM_UPDATE_GITHUB_TOKEN }}
 
       - name: Read package version
         id: meta

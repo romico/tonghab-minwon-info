@@ -173,6 +173,94 @@ export function resolveFeedUrl(): string | null {
   }
 }
 
+const FEED_URL_FILE = () => join(DATA_DIR, "update-feed.url");
+const GITHUB_TOKEN_FILE = () => join(DATA_DIR, "github-token.txt");
+
+export type UpdateConfig = {
+  feedUrl: string | null;
+  feedUrlFromEnv: boolean;
+  githubTokenConfigured: boolean;
+  githubTokenFromEnv: boolean;
+  githubTokenHint: string | null;
+};
+
+function maskToken(token: string): string {
+  if (token.length <= 8) return "****";
+  return `${token.slice(0, 4)}…${token.slice(-4)}`;
+}
+
+export function getUpdateConfig(): UpdateConfig {
+  const envFeed = process.env.TM_UPDATE_FEED_URL?.trim() || null;
+  const envToken =
+    process.env.TM_GITHUB_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim() || null;
+  const fileFeed = (() => {
+    try {
+      if (!existsSync(FEED_URL_FILE())) return null;
+      return (
+        readFileSync(FEED_URL_FILE(), "utf8")
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .find((l) => l && !l.startsWith("#")) || null
+      );
+    } catch {
+      return null;
+    }
+  })();
+  const fileToken = (() => {
+    try {
+      if (!existsSync(GITHUB_TOKEN_FILE())) return null;
+      return readFileSync(GITHUB_TOKEN_FILE(), "utf8").trim() || null;
+    } catch {
+      return null;
+    }
+  })();
+  const effectiveToken = envToken || fileToken;
+  return {
+    feedUrl: envFeed || fileFeed,
+    feedUrlFromEnv: Boolean(envFeed),
+    githubTokenConfigured: Boolean(effectiveToken),
+    githubTokenFromEnv: Boolean(envToken),
+    githubTokenHint: effectiveToken ? maskToken(effectiveToken) : null,
+  };
+}
+
+export function saveUpdateConfig(input: {
+  feedUrl?: string | null;
+  githubToken?: string | null;
+  clearGithubToken?: boolean;
+}): UpdateConfig {
+  mkdirSync(DATA_DIR, { recursive: true });
+
+  if (input.feedUrl !== undefined) {
+    const url = (input.feedUrl ?? "").trim();
+    if (!url) {
+      if (existsSync(FEED_URL_FILE())) rmSync(FEED_URL_FILE(), { force: true });
+    } else {
+      if (!/^https?:\/\//i.test(url) && !url.startsWith("file:")) {
+        throw new Error("피드 URL은 http(s):// 로 시작해야 합니다.");
+      }
+      writeFileSync(FEED_URL_FILE(), `${url}\n`, "utf8");
+    }
+  }
+
+  if (input.clearGithubToken) {
+    if (existsSync(GITHUB_TOKEN_FILE())) {
+      rmSync(GITHUB_TOKEN_FILE(), { force: true });
+    }
+  } else if (input.githubToken !== undefined && input.githubToken !== null) {
+    const token = input.githubToken.trim();
+    if (!token) {
+      if (existsSync(GITHUB_TOKEN_FILE())) {
+        rmSync(GITHUB_TOKEN_FILE(), { force: true });
+      }
+    } else {
+      writeFileSync(GITHUB_TOKEN_FILE(), `${token}\n`, "utf8");
+    }
+  }
+
+  return getUpdateConfig();
+}
+
 function githubHeaders(token: string | null, accept: string): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: accept,

@@ -10,8 +10,11 @@ import {
 import {
   apiApplyUpdate,
   apiCheckUpdate,
+  apiGetUpdateConfig,
   apiGetVersion,
+  apiSaveUpdateConfig,
   type UpdateCheckResult,
+  type UpdateConfig,
 } from "@/api/updates";
 import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
@@ -60,6 +63,10 @@ export function SettingsPage() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [applyingUpdate, setApplyingUpdate] = useState(false);
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false);
+  const [updateConfig, setUpdateConfig] = useState<UpdateConfig | null>(null);
+  const [feedUrlInput, setFeedUrlInput] = useState("");
+  const [githubTokenInput, setGithubTokenInput] = useState("");
+  const [savingUpdateConfig, setSavingUpdateConfig] = useState(false);
 
   useEffect(() => {
     void apiGetSettings()
@@ -77,7 +84,44 @@ export function SettingsPage() {
     void apiGetVersion()
       .then((v) => setAppVersion(v.version))
       .catch(() => setAppVersion(null));
+    void apiGetUpdateConfig()
+      .then((c) => {
+        setUpdateConfig(c);
+        setFeedUrlInput(c.feedUrl ?? "");
+      })
+      .catch(() => setUpdateConfig(null));
   }, []);
+
+  async function onSaveUpdateConfig(e: FormEvent) {
+    e.preventDefault();
+    setUpdateMsg(null);
+    setUpdateErr(null);
+    setSavingUpdateConfig(true);
+    try {
+      const payload: {
+        feedUrl: string | null;
+        githubToken?: string;
+        clearGithubToken?: boolean;
+      } = {
+        feedUrl: feedUrlInput.trim() || null,
+      };
+      const tokenTrim = githubTokenInput.trim();
+      if (tokenTrim === "-") {
+        payload.clearGithubToken = true;
+      } else if (tokenTrim) {
+        payload.githubToken = tokenTrim;
+      }
+      const c = await apiSaveUpdateConfig(payload);
+      setUpdateConfig(c);
+      setFeedUrlInput(c.feedUrl ?? "");
+      setGithubTokenInput("");
+      setUpdateMsg("업데이트 연결 설정을 저장했습니다. 다시 확인해 보세요.");
+    } catch (err) {
+      setUpdateErr(err instanceof Error ? err.message : "설정 저장 실패");
+    } finally {
+      setSavingUpdateConfig(false);
+    }
+  }
 
   async function onCheckUpdate() {
     setUpdateMsg(null);
@@ -326,13 +370,64 @@ export function SettingsPage() {
         </div>
         <div className="panel-body settings-panel-body">
           <p className="settings-lead">
-            <code>update.json</code>/<code>update.ini</code> 매니페스트로 최신
-            버전·다운로드 URL·SHA-256을 확인합니다. 권장:{" "}
-            <code>data/update-feed.url</code>에 피드 주소를 한 줄로 저장하세요.
-            다운로드 후 체크섬을 검증하며, <code>data</code> 폴더는 유지됩니다.
+            저장소가 비공개라서 업데이트 확인에 <strong>피드 URL</strong> 또는{" "}
+            <strong>GitHub 토큰</strong>이 필요합니다. 아래를 저장한 뒤 「최신
+            버전 확인」을 누르세요. 다운로드 후 SHA-256을 검증하며{" "}
+            <code>data</code> 폴더는 유지됩니다.
           </p>
           {updateErr && <p className="settings-alert is-error">{updateErr}</p>}
           {updateMsg && <p className="settings-alert is-ok">{updateMsg}</p>}
+
+          <form
+            className="settings-form settings-form-password"
+            onSubmit={(e) => void onSaveUpdateConfig(e)}
+          >
+            <label className="field settings-field settings-field-full">
+              업데이트 피드 URL (권장)
+              <input
+                type="url"
+                placeholder="https://파일서버/update.json"
+                value={feedUrlInput}
+                onChange={(e) => setFeedUrlInput(e.target.value)}
+                disabled={updateConfig?.feedUrlFromEnv === true}
+              />
+            </label>
+            <p className="settings-help settings-field-full">
+              {updateConfig?.feedUrlFromEnv
+                ? "환경변수 TM_UPDATE_FEED_URL 이 우선 적용 중입니다."
+                : "비워 두면 GitHub 방식으로 확인합니다. 예시는 docs/update.example.json 참고."}
+            </p>
+            <label className="field settings-field settings-field-full">
+              GitHub 읽기 전용 토큰 (PAT)
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder={
+                  updateConfig?.githubTokenConfigured
+                    ? `저장됨 (${updateConfig.githubTokenHint ?? "****"}) — 변경 시에만 입력`
+                    : "github_pat_… 또는 ghp_…"
+                }
+                value={githubTokenInput}
+                onChange={(e) => setGithubTokenInput(e.target.value)}
+                disabled={updateConfig?.githubTokenFromEnv === true}
+              />
+            </label>
+            <p className="settings-help settings-field-full">
+              {updateConfig?.githubTokenFromEnv
+                ? "환경변수 토큰이 우선 적용 중입니다."
+                : "contents:read 권한 Fine-grained PAT. 삭제는 입력란에 - 만 넣고 저장."}
+            </p>
+            <div className="settings-actions settings-field-full">
+              <button
+                type="submit"
+                className="btn"
+                disabled={savingUpdateConfig}
+              >
+                {savingUpdateConfig ? "저장 중…" : "연결 설정 저장"}
+              </button>
+            </div>
+          </form>
+
           <div className="settings-status">
             <div className="settings-stat">
               <span className="settings-stat-label">현재 버전</span>
