@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import express from "express";
 import { initAuditTable, listAuditLogs, writeAudit, clearAuditLogs } from "./audit.ts";
@@ -26,6 +26,7 @@ import {
   addComplaints,
   archiveAndClearComplaints,
   complaintExists,
+  DATA_DIR,
   DB_PATH,
   deleteArchiveFile,
   deleteComplaint,
@@ -63,7 +64,7 @@ import {
 import type { Complaint, ComplaintInput } from "../src/schema/index.ts";
 import { maskName, maskPhone } from "../src/lib/privacy.ts";
 
-const PORT = Number(process.env.PORT ?? 8787);
+const PORT = Number(process.env.PORT ?? 9000);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const COOKIE_NAME = "tm_session";
 const DIST_DIR = process.env.TM_DIST_DIR ?? join(process.cwd(), "dist");
@@ -1133,10 +1134,84 @@ app.use(
   },
 );
 
-app.listen(PORT, HOST, () => {
-  const url = `http://${HOST}:${PORT}`;
+function portCandidates(preferred: number): number[] {
+  // Avoid common Windows Hyper-V / WinNAT excluded ranges (often ~87xx-92xx).
+  const extras = [9000, 7777, 9876, 9877, 18080, 18787, 28080, 3847, 4567];
+  const out: number[] = [];
+  for (const p of [preferred, ...extras]) {
+    if (Number.isFinite(p) && p > 0 && p <= 65535 && !out.includes(p)) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+function announceListen(port: number): void {
+  try {
+    writeFileSync(join(DATA_DIR, "server.pid"), `${process.pid}\n`, "utf8");
+    writeFileSync(join(DATA_DIR, "server.port"), `${port}\n`, "utf8");
+  } catch {
+    /* portable launcher reads these; ignore write failures */
+  }
+  const url = `http://${HOST}:${port}`;
   console.log(`통합민원정보      ${url}`);
   console.log(`DB 파일           ${DB_PATH}`);
   if (SERVE_STATIC) console.log(`정적 파일         ${DIST_DIR}`);
   console.log(`기본 계정         admin / admin`);
-});
+  if (port !== PORT) {
+    console.log(`(PORT ${PORT} unavailable - using ${port})`);
+  }
+}
+
+function startListening(ports: number[]): void {
+  const port = ports[0];
+  if (port == null) {
+    console.error(
+      "[ERROR] No available port. Set PORT=9876 and retry, or free the reserved range:",
+    );
+    console.error(
+      "        netsh interface ipv4 show excludedportrange protocol=tcp",
+    );
+    process.exit(1);
+  }
+  const rest = ports.slice(1);
+  const server = app.listen(port, HOST, () => {
+    announceListen(port);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    const retryable = err.code === "EACCES" || err.code === "EADDRINUSE";
+    if (retryable && rest.length > 0) {
+      console.warn(
+        `[listen] ${HOST}:${port} ${err.code} - trying ${rest[0]}...`,
+      );
+      try {
+        server.close();
+      } catch {
+        /* ignore */
+      }
+      startListening(rest);
+      return;
+    }
+    console.error(err);
+    if (err.code === "EACCES") {
+      console.error(
+        "[hint] Windows often returns EACCES for Hyper-V reserved ports.",
+      );
+      console.error(
+        "       Try: set PORT=9876   or check excludedportrange via netsh.",
+      );
+    }
+    process.exit(1);
+  });
+}
+
+startListening(portCandidates(PORT));
+
+// Windows portable: some launchers caused a clean exit (code 0) right after
+// the listen banner. Keep a durable timer so the event loop cannot drain.
+if (process.env.TM_PORTABLE === "1") {
+  setInterval(() => {
+    /* keep-alive */
+  }, 60_000);
+}

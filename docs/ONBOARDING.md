@@ -15,10 +15,12 @@
 | 데이터베이스 | Node 내장 `node:sqlite` |
 | 런타임 DB 위치 | `data/tonghab-minwon.db` |
 | 개발 웹 주소 | `http://localhost:5173` |
-| 개발 API 주소 | `http://127.0.0.1:8787` |
-| 포터블 배포 | Windows 64비트용 ZIP |
+| 개발 API 주소 | `http://127.0.0.1:9000` |
+| 포터블 배포 | Windows / macOS / Linux 포터블 ZIP (기본 포트 9000) |
 
 `master`에는 기능 코드와 문서만 커밋합니다. 런타임 DB, 빌드 산출물, 로컬 환경 파일, 포터블 패키지는 `.gitignore` 대상입니다. 운영 데이터가 들어 있는 `data/tonghab-minwon.db`는 절대 커밋하지 않습니다.
+
+> Windows에서 `listen EACCES` 가 나면 TCP 제외 범위를 의하세요: [`portable-windows-port-troubleshooting.md`](./portable-windows-port-troubleshooting.md)
 
 ## 2. 로컬 개발 환경 준비
 
@@ -42,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Vite 개발 서버는 `5173` 포트에서 실행되고 `/api` 요청을 `8787` 포트의 Express 서버로 프록시합니다. 브라우저에서 `http://localhost:5173`을 엽니다.
+Vite 개발 서버는 `5173` 포트에서 실행되고 `/api` 요청을 `9000` 포트의 Express 서버로 프록시합니다. 브라우저에서 `http://localhost:5173`을 엽니다.
 
 개별 실행이 필요하면 다음 명령을 사용합니다.
 
@@ -59,7 +61,7 @@ npm run dev:api   # Express API만 실행
 
 | 변수 | 기본값 | 용도 |
 |---|---:|---|
-| `PORT` | `8787` | Express API 포트 |
+| `PORT` | `9000` | Express API 포트 |
 | `HOST` | `127.0.0.1` | API 바인딩 주소 |
 | `TM_DATA_DIR` | 현재 작업 디렉터리의 `data` | SQLite DB 디렉터리 |
 | `TM_DIST_DIR` | 현재 작업 디렉터리의 `dist` | 정적 파일 경로 |
@@ -219,7 +221,7 @@ git push origin v0.1.4
 
 | 증상 | 우선 확인할 항목 |
 |---|---|
-| 화면은 열리지만 API 연결 오류가 발생함 | `npm run dev:api` 실행 여부와 `8787` 포트 점유 여부 |
+| 화면은 열리지만 API 연결 오류가 발생함 | `npm run dev:api` 실행 여부와 `9000` 포트 점유 여부. Windows `EACCES`면 [`portable-windows-port-troubleshooting.md`](./portable-windows-port-troubleshooting.md) |
 | SQLite 관련 오류가 발생함 | Node.js가 22 이상인지, `TM_DATA_DIR`에 쓰기 권한이 있는지 |
 | 변경한 화면이 보이지 않음 | Vite 콘솔 오류, 브라우저 새로고침, `src/App.tsx`의 라우트 등록 |
 | 보고서 숫자가 다름 | 통보일 필터, 처리 상태, `src/schema/aggregate.ts`, 보고서 스키마 |

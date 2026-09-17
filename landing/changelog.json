@@ -2,6 +2,19 @@
   "source": "CHANGELOG.md",
   "entries": [
     {
+      "version": "0.1.19",
+      "date": "2026-09-17",
+      "fixed": [
+        "Windows 포터블 listen EACCES(TCP 제외 범위) — 기본 포트 9000, 폴백·트러블슈팅 문서"
+      ],
+      "changed": [
+        "포터블 런처 ASCII/cmd 전용 안정화, 동일 창 기동, server.pid/port 기록"
+      ],
+      "added": [
+        "사내망 모바일·현장 확장 기획 문서(docs/mobile-intranet)"
+      ]
+    },
+    {
       "version": "0.1.18",
       "date": "2026-09-17",
       "added": [

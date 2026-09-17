@@ -33,7 +33,7 @@
 
 | 모드 | 명령 |
 |---|---|
-| 개발 | `npm run dev` → API **8787** + Vite(프록시 `/api` → 8787) |
+| 개발 | `npm run dev` → API **9000** + Vite(프록시 `/api` → 9000) |
 | API만 | `npm run dev:api` / `npm run start:api` |
 | 프론트 빌드 | `npm run build` → `dist/` |
 | Windows 포터블 | `npm run release:win` → `scripts/build-release.mjs` |
@@ -43,8 +43,10 @@
 1. Vite 빌드 (`dist/`)
 2. Node 22 win-x64 `node.exe` 내장 (`runtime/`)
 3. esbuild로 `server/index.ts` → `server.cjs` (`node:sqlite` external)
-4. `my-minwon-server.bat` (HOST=`127.0.0.1`, PORT=`8787`, production)
+4. `my-minwon-server.bat` (HOST=`127.0.0.1`, PORT=`9000`, production)
 5. ZIP: `tonghab-minwon-info-windows-portable-v{version}.zip` → GitHub Release
+
+> Windows `listen EACCES`: TCP 제외 범위 문제일 수 있음 → [`portable-windows-port-troubleshooting.md`](./portable-windows-port-troubleshooting.md)
 
 프로덕션에서는 Express가 `dist/` 정적 파일 + SPA fallback을 함께 서빙합니다.
 
@@ -88,7 +90,7 @@ flowchart LR
     XLS[export/*.ts]
   end
 
-  subgraph Server["Express :8787"]
+  subgraph Server["Express :9000"]
     API["/api/*"]
     AUTH[auth.ts]
     DBM[db.ts]

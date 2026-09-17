@@ -45,7 +45,7 @@
 - 클라우드 멀티테넌시·원격 동기화
 - 일일보고 **확정(freeze) 스냅샷 API** (`DailyReportSnapshot`)
 - OAuth / SSO
-- 모바일 네이티브 앱
+- 모바일 네이티브 앱 (사내망·현장 확장 기획은 [`docs/mobile-intranet/`](./mobile-intranet/)에서 **별도 트랙**으로 관리)
 
 ### 1.5 사용자
 
@@ -58,7 +58,7 @@
 ### 1.6 성공 지표 (구현 관점)
 
 - 관리대장 1건 등록 → 부서·총괄·일일·대시보드 KPI가 즉시 반영
-- 포터블 ZIP 압축 해제 후 `my-minwon-server.bat`만으로 `http://127.0.0.1:8787` 기동
+- 포터블 ZIP 압축 해제 후 `my-minwon-server.bat`만으로 `http://127.0.0.1:9000` 기동
 - 통합 엑셀 4시트가 각 화면 개별 내보내기와 동일 양식
 
 ---
@@ -86,7 +86,7 @@
 [관리자 브라우저]
        │  cookie tm_session / JSON API
        ▼
-[Express :8787] ── static dist/ (프로덕션)
+[Express :9000] ── static dist/ (프로덕션)
        │
        ▼
 [SQLite] data/tonghab-minwon.db
@@ -115,7 +115,7 @@
 
 | 변수 | 기본 | 의미 |
 |---|---|---|
-| `PORT` | `8787` | HTTP 포트 |
+| `PORT` | `9000` | HTTP 포트 (Windows TCP 제외 범위에 8787이 걸리는 PC 대비) |
 | `HOST` | `127.0.0.1` | 바인딩 |
 | `TM_DATA_DIR` | `cwd/data` | DB 디렉터리 |
 | `NODE_ENV` | (포터블 `production`) | |
@@ -342,7 +342,7 @@
 | POST | `/api/complaints/reset-seed` | ○ | 시드 복원 |
 | DELETE | `/api/complaints/:id` | ○ | 삭제 |
 
-개발 시 Vite가 `/api` → `127.0.0.1:8787` 프록시.
+개발 시 Vite가 `/api` → `127.0.0.1:9000` 프록시.
 
 ---
 
@@ -382,7 +382,7 @@
 | ID | 분류 | 요구사항 |
 |---|---|---|
 | NFR-01 | 배포 | Windows 64bit 포터블 ZIP, Node 설치 불필요 |
-| NFR-02 | 기동 | `my-minwon-server.bat` → 브라우저 `http://127.0.0.1:8787` |
+| NFR-02 | 기동 | `my-minwon-server.bat` → 브라우저 `http://127.0.0.1:9000` |
 | NFR-03 | 데이터 이식 | `data/` 폴더 복사로 DB 이전 |
 | NFR-04 | 개인정보 | UI 기본 마스킹; 엑셀은 옵션; Secure 쿠키 없음(로컬 HTTP) |
 | NFR-05 | 용량 | 사진 data URL로 DB·요청 비대화 가능 → 50mb limit, HWPX 압축 |

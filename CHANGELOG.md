@@ -7,6 +7,25 @@
 
 ---
 
+## [0.1.19] - 2026-09-17
+
+### Fixed
+
+- Windows 포터블 `listen EACCES` — Hyper-V/WSL TCP 제외 범위(예: 8698–8797)에 8787이 걸려 기동 실패하던 문제
+- 포터블 런처를 ASCII cmd 전용으로 정리 (UTF-8 BOM으로 `@echo off`가 깨지던 문제, PowerShell 의존 제거)
+
+### Changed
+
+- 기본 HTTP 포트 `8787` → `9000` (제외 범위 회피). `EACCES`/`EADDRINUSE` 시 후보 포트 자동 폴백
+- 포터블 Start는 동일 창 포그라운드 실행으로 안정화. listen 성공 시 `data/server.pid` · `data/server.port` 기록
+
+### Added
+
+- Windows TCP 제외 범위 트러블슈팅 문서 (`docs/portable-windows-port-troubleshooting.md`)
+- 사내망 모바일·현장 확장 기획 문서 트랙 (`docs/mobile-intranet/`)
+
+---
+
 ## [0.1.18] - 2026-09-17
 
 ### Added
