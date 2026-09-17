@@ -1,9 +1,13 @@
 export type AuditAction =
   | "LOGIN_SUCCESS"
   | "LOGIN_FAIL"
+  | "LOGIN_TOTP_REQUIRED"
   | "LOGOUT"
   | "PASSWORD_CHANGE"
   | "SETTINGS_UPDATE"
+  | "TOTP_SETUP_BEGIN"
+  | "TOTP_ENABLED"
+  | "TOTP_DISABLED"
   | "COMPLAINT_CREATE"
   | "COMPLAINT_UPDATE"
   | "COMPLAINT_DELETE"
@@ -30,9 +34,13 @@ export interface AuditLog {
 export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   LOGIN_SUCCESS: "로그인 성공",
   LOGIN_FAIL: "로그인 실패",
+  LOGIN_TOTP_REQUIRED: "2단계 인증 대기",
   LOGOUT: "로그아웃",
   PASSWORD_CHANGE: "비밀번호 변경",
   SETTINGS_UPDATE: "설정 변경",
+  TOTP_SETUP_BEGIN: "2FA 설정 시작",
+  TOTP_ENABLED: "2FA 활성화",
+  TOTP_DISABLED: "2FA 비활성화",
   COMPLAINT_CREATE: "민원 등록",
   COMPLAINT_UPDATE: "민원 수정",
   COMPLAINT_DELETE: "민원 삭제",

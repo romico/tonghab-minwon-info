@@ -13,13 +13,30 @@ const ACTION_OPTIONS = Object.entries(AUDIT_ACTION_LABELS) as Array<
 >;
 
 function actionTone(action: AuditAction): string {
-  if (action === "LOGIN_FAIL" || action === "COMPLAINT_DELETE") return "danger";
+  if (
+    action === "LOGIN_FAIL" ||
+    action === "COMPLAINT_DELETE" ||
+    action === "COMPLAINT_RESET_SEED"
+  ) {
+    return "danger";
+  }
   if (action === "LOGIN_SUCCESS" || action === "COMPLAINT_CREATE") return "ok";
-  if (action === "PASSWORD_CHANGE" || action === "SETTINGS_UPDATE") return "warn";
+  if (
+    action === "LOGIN_TOTP_REQUIRED" ||
+    action === "PASSWORD_CHANGE" ||
+    action === "SETTINGS_UPDATE" ||
+    action === "TOTP_SETUP_BEGIN" ||
+    action === "TOTP_ENABLED" ||
+    action === "TOTP_DISABLED"
+  ) {
+    return "warn";
+  }
   if (
     action === "COMPLAINT_UPDATE" ||
     action === "COMPLAINT_BATCH_CREATE" ||
-    action === "COMPLAINT_REPLACE"
+    action === "COMPLAINT_REPLACE" ||
+    action === "SNAPSHOT_FREEZE" ||
+    action === "UPDATE_APPLY"
   ) {
     return "info";
   }

@@ -386,21 +386,21 @@ export function SettingsPage() {
             )}
             {updateInfo?.updateAvailable &&
               !updateInfo.canApply &&
-              updateInfo.htmlUrl && (
+              updateInfo.downloadUrl && (
                 <a
                   className="btn btn-primary"
-                  href={updateInfo.htmlUrl}
+                  href={updateInfo.downloadUrl}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  다운로드 안내
+                  ZIP 다운로드
                 </a>
               )}
           </div>
           {updateInfo?.updateAvailable && !updateInfo.canApply && (
             <p className="settings-help">
-              이 PC에서는 자동 적용이 지원되지 않습니다. 관리자에게 새 배포본을
-              요청하세요.
+              이 PC(Mac·개발 환경)에서는 자동 적용이 지원되지 않습니다. Windows
+              포터블에서 업데이트하거나, ZIP을 받아 수동으로 교체하세요.
             </p>
           )}
         </div>

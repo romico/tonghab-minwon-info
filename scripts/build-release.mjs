@@ -97,7 +97,7 @@ writeFileSync(
 /** 기본 업데이트 피드 — package.json 에 기록 (data 는 DB 전용) */
 const DEFAULT_FEED =
   process.env.TM_UPDATE_FEED_URL?.trim() ||
-  "https://uany-update.pages.dev/tonghab-minwon-info/update.json";
+  "https://update.uany.net/tonghab-minwon-info/update.json";
 /** ZIP은 Pages Function 프록시 (클라이언트 토큰 불필요) */
 const DEFAULT_DOWNLOAD =
   process.env.TM_UPDATE_DOWNLOAD_URL?.trim() ||
@@ -199,7 +199,7 @@ writeFileSync(
 
 ■ 업데이트
   - 설정 → "버전 및 업데이트"에서 확인·적용합니다.
-  - 버전 확인: package.json 의 updateFeedUrl (Cloudflare Pages)
+  - 버전 확인: package.json 의 updateFeedUrl (update.uany.net)
   - ZIP 적용: 공개 다운로드 프록시 (클라이언트 토큰 불필요)
 
 ■ 포트 변경

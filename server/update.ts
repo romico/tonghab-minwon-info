@@ -153,10 +153,10 @@ function resolveGithubToken(): string | null {
   }
 }
 
-/** 기본 업데이트 피드 (Cloudflare Pages) */
+/** 기본 업데이트 피드 (update.uany.net → Cloudflare Pages) */
 export const DEFAULT_UPDATE_FEED_URL =
   process.env.TM_DEFAULT_UPDATE_FEED_URL?.trim() ||
-  "https://uany-update.pages.dev/tonghab-minwon-info/update.json";
+  "https://update.uany.net/tonghab-minwon-info/update.json";
 
 function readPackageUpdateFeedUrl(): string | null {
   const candidates = [

@@ -2,8 +2,8 @@
 /**
  * update.json 만 Cloudflare Pages(uany-update)에 배포
  * 경로: /tonghab-minwon-info/update.json
- * 기본 URL: https://uany-update.pages.dev/tonghab-minwon-info/update.json
- * (커스텀) https://update.uany.net/tonghab-minwon-info/update.json
+ * 기본 URL: https://update.uany.net/tonghab-minwon-info/update.json
+ * (대체) https://uany-update.pages.dev/tonghab-minwon-info/update.json
  */
 import {
   copyFileSync,

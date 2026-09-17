@@ -339,6 +339,10 @@ textarea {
 
 .btn {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid var(--line);
   background: #fff;
   color: var(--ink);
@@ -346,7 +350,15 @@ textarea {
   padding: 8px 12px;
   font-size: 13px;
   font-weight: 620;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
+  box-sizing: border-box;
+}
+
+a.btn {
+  color: inherit;
 }
 
 .btn:hover {
@@ -356,6 +368,10 @@ textarea {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
+  color: #fff;
+}
+
+a.btn-primary {
   color: #fff;
 }
 
@@ -1034,6 +1050,7 @@ textarea {
 }
 
 .auth-warning-banner {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1052,30 +1069,6 @@ textarea {
 }
 
 .auth-warning-banner .btn {
-  flex-shrink: 0;
-}
-
-.update-available-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  background: #eff6ff;
-  border-bottom: 1px solid #bfdbfe;
-  color: #1e3a8a;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.update-available-banner p {
-  margin: 0;
-  line-height: 1.45;
-}
-
-.update-available-banner-actions {
-  display: flex;
-  gap: 8px;
   flex-shrink: 0;
 }
 
@@ -1669,12 +1662,14 @@ textarea {
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   padding-top: 4px;
 }
 
 .settings-actions .btn {
   min-width: 140px;
+  min-height: 36px;
 }
 
 .settings-form .field,

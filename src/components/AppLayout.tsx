@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { apiCheckUpdate } from "@/api/updates";
 import { PeriodLoadingOverlay } from "@/components/PeriodLoadingOverlay";
 import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
@@ -16,7 +15,6 @@ const LINKS = [
 ];
 
 const HIDE_PERIOD_PATHS = new Set(["/audit", "/settings"]);
-const UPDATE_DISMISS_KEY = "tm_update_banner_dismissed";
 
 export function AppLayout() {
   const location = useLocation();
@@ -37,10 +35,6 @@ export function AppLayout() {
   } = useComplaintStore();
 
   const [navOpen, setNavOpen] = useState(false);
-  const [updateBanner, setUpdateBanner] = useState<{
-    latestVersion: string;
-    currentVersion: string;
-  } | null>(null);
   const periodActive = Boolean(periodFrom || periodTo);
   const busy = periodLoading || storeLoading;
   const showPeriodFilters = !HIDE_PERIOD_PATHS.has(location.pathname);
@@ -72,27 +66,6 @@ export function AppLayout() {
     };
   }, [navOpen]);
 
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    void apiCheckUpdate()
-      .then((r) => {
-        if (cancelled || !r.updateAvailable || !r.latestVersion) return;
-        const dismissed = sessionStorage.getItem(UPDATE_DISMISS_KEY);
-        if (dismissed === r.latestVersion) return;
-        setUpdateBanner({
-          latestVersion: r.latestVersion,
-          currentVersion: r.currentVersion,
-        });
-      })
-      .catch(() => {
-        /* 오프라인 등은 조용히 무시 */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-
   return (
     <div className={`app-shell${navOpen ? " is-nav-open" : ""}`}>
       {authWarning && (
@@ -101,32 +74,6 @@ export function AppLayout() {
           <button type="button" className="btn" onClick={clearAuthWarning}>
             닫기
           </button>
-        </div>
-      )}
-      {updateBanner && (
-        <div className="update-available-banner" role="status">
-          <p>
-            새 버전 v{updateBanner.latestVersion}이(가) 있습니다 (현재 v
-            {updateBanner.currentVersion}). 설정에서 업데이트할 수 있습니다.
-          </p>
-          <div className="update-available-banner-actions">
-            <NavLink to="/settings" className="btn btn-primary">
-              설정으로
-            </NavLink>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                sessionStorage.setItem(
-                  UPDATE_DISMISS_KEY,
-                  updateBanner.latestVersion,
-                );
-                setUpdateBanner(null);
-              }}
-            >
-              나중에
-            </button>
-          </div>
         </div>
       )}
       <header className="mobile-bar">
