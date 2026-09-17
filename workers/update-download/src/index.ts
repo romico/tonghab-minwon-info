@@ -1,6 +1,6 @@
 /**
  * 포터블 ZIP 프록시 — 클라이언트 토큰 없이 GitHub Release asset 중계
- * GET /?tag=v0.1.8  또는  GET /download?tag=v0.1.8
+ * GET /download?tag=v0.1.9&platform=win32-x64|linux-x64|darwin-arm64|darwin-x64
  */
 export interface Env {
   GITHUB_TOKEN: string;
@@ -12,7 +12,25 @@ type GhRelease = {
 };
 
 const DEFAULT_REPO = "romico/tonghab-minwon-info";
-const ASSET_PREFIX = "tonghab-minwon-info-windows-portable-v";
+
+const PLATFORM_PREFIX: Record<string, string> = {
+  "win32-x64": "tonghab-minwon-info-windows-portable-v",
+  windows: "tonghab-minwon-info-windows-portable-v",
+  win: "tonghab-minwon-info-windows-portable-v",
+  "linux-x64": "tonghab-minwon-info-linux-portable-v",
+  linux: "tonghab-minwon-info-linux-portable-v",
+  "darwin-arm64": "tonghab-minwon-info-macos-arm64-portable-v",
+  "macos-arm64": "tonghab-minwon-info-macos-arm64-portable-v",
+  "darwin-x64": "tonghab-minwon-info-macos-x64-portable-v",
+  "macos-x64": "tonghab-minwon-info-macos-x64-portable-v",
+  macos: "tonghab-minwon-info-macos-arm64-portable-v",
+  darwin: "tonghab-minwon-info-macos-arm64-portable-v",
+};
+
+function resolvePrefix(platformRaw: string | null): string {
+  const key = (platformRaw || "win32-x64").trim().toLowerCase();
+  return PLATFORM_PREFIX[key] ?? PLATFORM_PREFIX["win32-x64"];
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -40,6 +58,7 @@ export default {
     const releasePath = tagRaw
       ? `releases/tags/v${tagRaw}`
       : "releases/latest";
+    const assetPrefix = resolvePrefix(url.searchParams.get("platform"));
 
     const apiHeaders = {
       Accept: "application/vnd.github+json",
@@ -61,11 +80,13 @@ export default {
 
     const release = (await releaseRes.json()) as GhRelease;
     const asset = (release.assets ?? []).find(
-      (a) => a.name.startsWith(ASSET_PREFIX) && a.name.endsWith(".zip"),
+      (a) => a.name.startsWith(assetPrefix) && a.name.endsWith(".zip"),
     );
     if (!asset) {
       return Response.json(
-        { error: "포터블 ZIP 을 찾지 못했습니다." },
+        {
+          error: `포터블 ZIP 을 찾지 못했습니다 (${assetPrefix}*).`,
+        },
         { status: 404 },
       );
     }

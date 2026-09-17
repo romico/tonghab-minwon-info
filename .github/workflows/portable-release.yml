@@ -1,7 +1,7 @@
-# Windows 포터블 ZIP 빌드
-# - Ubuntu에서 win-x64 Node 런타임을 번들 (PC에 Node 설치 불필요)
-# - tag(v*) push 시 GitHub Release 자동 게시
-name: Windows Portable
+# 멀티 플랫폼 포터블 ZIP 빌드 (Windows / Linux / macOS)
+# - Ubuntu에서 각 OS용 Node 런타임을 번들
+# - tag(v*) push 시 GitHub Release 자동 게시 + update.json 배포
+name: Portable Release
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
     branches: [master]
 
 concurrency:
-  group: windows-portable-${{ github.workflow }}-${{ github.ref }}
+  group: portable-release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -20,9 +20,9 @@ permissions:
 
 jobs:
   build:
-    name: Build portable ZIP
+    name: Build portable ZIPs
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -37,16 +37,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Cache bundled Node win-x64
+      - name: Cache bundled Node runtimes
         uses: actions/cache@v4
         with:
           path: .cache
-          key: node-win-x64-${{ hashFiles('scripts/build-release.mjs') }}-22.18.0
+          key: node-portable-${{ hashFiles('scripts/build-release.mjs') }}-22.18.0
           restore-keys: |
-            node-win-x64-
+            node-portable-
 
-      - name: Build Windows portable
-        run: npm run release:win
+      - name: Build all portable packages
+        run: npm run release:all
         env:
           CI: "true"
 
@@ -55,15 +55,17 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "zip=tonghab-minwon-info-windows-portable-v${VERSION}.zip" >> "$GITHUB_OUTPUT"
-          ls -lh tonghab-minwon-info-windows-portable*.zip release-win/runtime/node.exe
+          ls -lh tonghab-minwon-info-*-portable-v${VERSION}.zip update.json
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}
+          name: tonghab-minwon-info-portable-v${{ steps.meta.outputs.version }}
           path: |
             tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+            tonghab-minwon-info-linux-portable-v${{ steps.meta.outputs.version }}.zip
+            tonghab-minwon-info-macos-arm64-portable-v${{ steps.meta.outputs.version }}.zip
+            tonghab-minwon-info-macos-x64-portable-v${{ steps.meta.outputs.version }}.zip
             update.json
             update.ini
           if-no-files-found: error
@@ -75,6 +77,9 @@ jobs:
         with:
           files: |
             tonghab-minwon-info-windows-portable-v${{ steps.meta.outputs.version }}.zip
+            tonghab-minwon-info-linux-portable-v${{ steps.meta.outputs.version }}.zip
+            tonghab-minwon-info-macos-arm64-portable-v${{ steps.meta.outputs.version }}.zip
+            tonghab-minwon-info-macos-x64-portable-v${{ steps.meta.outputs.version }}.zip
             update.json
             update.ini
           generate_release_notes: true

@@ -10,7 +10,11 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "start:api": "tsx server/index.ts",
-    "release:win": "node scripts/build-release.mjs",
+    "release:win": "node scripts/build-release.mjs --platform win32-x64",
+    "release:linux": "node scripts/build-release.mjs --platform linux-x64",
+    "release:mac": "node scripts/build-release.mjs --platform darwin-arm64",
+    "release:mac-intel": "node scripts/build-release.mjs --platform darwin-x64",
+    "release:all": "node scripts/build-release.mjs --all",
     "deploy:update-feed": "node scripts/deploy-update-feed.mjs",
     "seed:year": "node scripts/seed-year.mjs"
   },

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   createReadStream,
   createWriteStream,
   existsSync,
@@ -20,15 +21,36 @@ const UPDATES_DIR = join(ROOT, "updates");
 const DOWNLOAD_ZIP = join(UPDATES_DIR, "download.zip");
 const EXTRACT_DIR = join(UPDATES_DIR, "extract");
 const APPLY_BAT = join(UPDATES_DIR, "apply-update.bat");
+const APPLY_SH = join(UPDATES_DIR, "apply-update.sh");
 const DATA_DIR = process.env.TM_DATA_DIR ?? join(ROOT, "data");
 
 /** GitHub owner/repo — 릴리스 조회 대상 */
 export const GITHUB_REPO =
   process.env.TM_GITHUB_REPO?.trim() || "romico/tonghab-minwon-info";
 
-const ASSET_PREFIX = "tonghab-minwon-info-windows-portable-v";
 const MANIFEST_JSON = "update.json";
 const MANIFEST_INI = "update.ini";
+
+const PLATFORM_ASSET_PREFIX: Record<string, string> = {
+  "win32-x64": "tonghab-minwon-info-windows-portable-v",
+  "linux-x64": "tonghab-minwon-info-linux-portable-v",
+  "darwin-arm64": "tonghab-minwon-info-macos-arm64-portable-v",
+  "darwin-x64": "tonghab-minwon-info-macos-x64-portable-v",
+};
+
+/** 현재 런타임 플랫폼 키 (예: win32-x64, darwin-arm64) */
+export function currentPlatformId(): string {
+  const arch =
+    process.arch === "arm64" || process.arch === "x64" ? process.arch : "x64";
+  return `${process.platform}-${arch}`;
+}
+
+export function assetPrefixForPlatform(platformId = currentPlatformId()): string {
+  return (
+    PLATFORM_ASSET_PREFIX[platformId] ??
+    PLATFORM_ASSET_PREFIX["win32-x64"]
+  );
+}
 
 export type UpdateCheckResult = {
   currentVersion: string;
@@ -58,6 +80,13 @@ export type UpdateApplyResult = {
   message: string;
 };
 
+export type UpdatePlatformEntry = {
+  downloadUrl: string;
+  sha256: string | null;
+  size: number | null;
+  fileName: string | null;
+};
+
 export type UpdateManifest = {
   version: string;
   downloadUrl: string;
@@ -68,6 +97,8 @@ export type UpdateManifest = {
   publishedAt: string | null;
   htmlUrl: string | null;
   fileName: string | null;
+  /** 플랫폼별 ZIP (있으면 현재 OS에 맞는 항목 우선) */
+  platforms?: Record<string, UpdatePlatformEntry>;
 };
 
 function readPackageVersion(): string {
@@ -91,14 +122,23 @@ export function getCurrentVersion(): string {
   return readPackageVersion();
 }
 
-/** runtime\\node.exe 또는 TM_PORTABLE=1 이면 포터블 배포 */
+/** runtime/node(.exe) 또는 TM_PORTABLE=1 이면 포터블 배포 */
 export function isPortableInstall(): boolean {
   if (process.env.TM_PORTABLE === "1") return true;
-  return existsSync(join(ROOT, "runtime", "node.exe"));
+  return (
+    existsSync(join(ROOT, "runtime", "node.exe")) ||
+    existsSync(join(ROOT, "runtime", "node"))
+  );
 }
 
+/** Windows / Linux / macOS 포터블에서 자동 적용 가능 */
 export function canApplyUpdate(): boolean {
-  return process.platform === "win32" && isPortableInstall();
+  if (!isPortableInstall()) return false;
+  return (
+    process.platform === "win32" ||
+    process.platform === "linux" ||
+    process.platform === "darwin"
+  );
 }
 
 function normalizeVersion(raw: string): string {
@@ -389,7 +429,34 @@ export function parseUpdateIni(text: string): UpdateManifest {
 
 export function parseUpdateJson(raw: unknown): UpdateManifest {
   const obj = (raw ?? {}) as Record<string, unknown>;
-  return normalizeManifest({
+  const platformsRaw = obj.platforms;
+  let platforms: Record<string, UpdatePlatformEntry> | undefined;
+  if (platformsRaw && typeof platformsRaw === "object") {
+    platforms = {};
+    for (const [key, val] of Object.entries(
+      platformsRaw as Record<string, unknown>,
+    )) {
+      if (!val || typeof val !== "object") continue;
+      const p = val as Record<string, unknown>;
+      const downloadUrl = str(p.downloadUrl ?? p.url)?.trim();
+      if (!downloadUrl) continue;
+      let size: number | null = null;
+      if (typeof p.size === "number" && Number.isFinite(p.size)) size = p.size;
+      else if (typeof p.size === "string" && p.size.trim()) {
+        const n = Number(p.size.trim());
+        if (Number.isFinite(n)) size = n;
+      }
+      platforms[key] = {
+        downloadUrl,
+        sha256: normalizeSha256(str(p.sha256 ?? p.hash)),
+        size,
+        fileName: str(p.fileName ?? p.filename)?.trim() || null,
+      };
+    }
+    if (Object.keys(platforms).length === 0) platforms = undefined;
+  }
+
+  const base = normalizeManifest({
     version: str(obj.version),
     name: str(obj.name),
     notes: str(obj.notes ?? obj.releaseNotes),
@@ -400,6 +467,38 @@ export function parseUpdateJson(raw: unknown): UpdateManifest {
     size: obj.size,
     fileName: str(obj.fileName ?? obj.filename ?? obj.file),
   });
+
+  return pickManifestForPlatform({ ...base, platforms });
+}
+
+/** 현재 OS에 맞는 platforms 항목이 있으면 최상위 downloadUrl/sha256 등을 덮어쓴다 */
+export function pickManifestForPlatform(
+  manifest: UpdateManifest,
+  platformId = currentPlatformId(),
+): UpdateManifest {
+  const map = manifest.platforms;
+  if (map && Object.keys(map).length > 0) {
+    const entry = map[platformId];
+    if (!entry) {
+      throw new Error(
+        `이 플랫폼(${platformId})용 업데이트 패키지가 없습니다.`,
+      );
+    }
+    return {
+      ...manifest,
+      downloadUrl: entry.downloadUrl,
+      sha256: entry.sha256 ?? manifest.sha256,
+      size: entry.size ?? manifest.size,
+      fileName: entry.fileName ?? manifest.fileName,
+    };
+  }
+  // 레거시 단일 피드(Windows ZIP만)
+  if (platformId !== "win32-x64") {
+    throw new Error(
+      "이 업데이트 피드에는 Windows 패키지만 있습니다. 관리자에게 최신 멀티플랫폼 피드를 요청하세요.",
+    );
+  }
+  return manifest;
 }
 
 function str(v: unknown): string | undefined {
@@ -575,7 +674,8 @@ async function checkFromGithub(): Promise<UpdateCheckResult> {
 
   const zip = pickAsset(
     release,
-    (name) => name.startsWith(ASSET_PREFIX) && name.endsWith(".zip"),
+    (name) =>
+      name.startsWith(assetPrefixForPlatform()) && name.endsWith(".zip"),
   );
   const manifestAsset = pickAsset(
     release,
@@ -693,47 +793,80 @@ async function verifyDownload(options: {
   return actual;
 }
 
-function expandZipWindows(zipPath: string, destDir: string): void {
+function expandZip(zipPath: string, destDir: string): void {
   mkdirSync(destDir, { recursive: true });
-  const ps = [
-    `$ErrorActionPreference='Stop'`,
-    `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`,
-  ].join("; ");
-  const r = spawnSync(
-    "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
-    { stdio: "pipe", encoding: "utf8" },
-  );
+  if (process.platform === "win32") {
+    const ps = [
+      `$ErrorActionPreference='Stop'`,
+      `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`,
+    ].join("; ");
+    const r = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        ps,
+      ],
+      { stdio: "pipe", encoding: "utf8" },
+    );
+    if (r.status !== 0) {
+      const detail = (r.stderr || r.stdout || "").toString().trim();
+      throw new Error(
+        detail
+          ? `ZIP 해제 실패: ${detail.slice(0, 400)}`
+          : "ZIP 해제 실패 (PowerShell Expand-Archive)",
+      );
+    }
+    return;
+  }
+
+  const r = spawnSync("unzip", ["-q", "-o", zipPath, "-d", destDir], {
+    stdio: "pipe",
+    encoding: "utf8",
+  });
   if (r.status !== 0) {
     const detail = (r.stderr || r.stdout || "").toString().trim();
     throw new Error(
       detail
         ? `ZIP 해제 실패: ${detail.slice(0, 400)}`
-        : "ZIP 해제 실패 (PowerShell Expand-Archive)",
+        : "ZIP 해제 실패 (unzip)",
     );
   }
 }
 
-/** ZIP 루트 또는 release-win/ 아래의 포터블 패키지 루트 찾기 */
+/** ZIP 루트 또는 release-* 폴더 아래의 포터블 패키지 루트 찾기 */
 function findPackageRoot(extractRoot: string): string {
   const marker = join(extractRoot, "server.cjs");
   if (existsSync(marker)) return extractRoot;
 
-  const nested = join(extractRoot, "release-win", "server.cjs");
-  if (existsSync(nested)) return join(extractRoot, "release-win");
+  const nestedNames = [
+    "release-win",
+    "release-linux",
+    "release-mac-arm64",
+    "release-mac-x64",
+  ];
+  for (const name of nestedNames) {
+    const nested = join(extractRoot, name, "server.cjs");
+    if (existsSync(nested)) return join(extractRoot, name);
+  }
 
   const entries = readdirSync(extractRoot, { withFileTypes: true });
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     const candidate = join(extractRoot, e.name);
     if (existsSync(join(candidate, "server.cjs"))) return candidate;
-    const deeper = join(candidate, "release-win", "server.cjs");
-    if (existsSync(deeper)) return join(candidate, "release-win");
+    for (const name of nestedNames) {
+      const deeper = join(candidate, name, "server.cjs");
+      if (existsSync(deeper)) return join(candidate, name);
+    }
   }
   throw new Error("업데이트 ZIP에서 server.cjs를 찾지 못했습니다.");
 }
 
-function writeApplyScript(packageRoot: string): void {
+function writeApplyScriptWindows(packageRoot: string): void {
   const bat = [
     "@echo off",
     "setlocal",
@@ -758,12 +891,54 @@ function writeApplyScript(packageRoot: string): void {
   writeFileSync(APPLY_BAT, bat, "utf8");
 }
 
+function writeApplyScriptUnix(packageRoot: string): void {
+  const sh = `#!/usr/bin/env bash
+set -euo pipefail
+cd "${ROOT}"
+echo
+echo "[update] Waiting for server to exit..."
+sleep 2
+echo "[update] Applying files (data folder is kept)..."
+SRC="${packageRoot}"
+# rsync 우선, 없으면 find+cp
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete \\
+    --exclude data --exclude updates --exclude .cache \\
+    "$SRC"/ ./
+else
+  while IFS= read -r -d '' f; do
+    rel="\${f#"$SRC"/}"
+    case "$rel" in
+      data|data/*|updates|updates/*|.cache|.cache/*) continue ;;
+    esac
+    mkdir -p "$(dirname "$rel")"
+    cp -a "$f" "$rel"
+  done < <(find "$SRC" -type f -print0)
+fi
+chmod +x runtime/node my-minwon-server.sh 2>/dev/null || true
+echo "[update] Restarting..."
+nohup ./my-minwon-server.sh >/dev/null 2>&1 &
+exit 0
+`;
+  writeFileSync(APPLY_SH, sh, "utf8");
+  chmodSync(APPLY_SH, 0o755);
+}
+
 function launchApplyScript(): void {
-  const child = spawn("cmd.exe", ["/c", "start", "", "/min", APPLY_BAT], {
+  if (process.platform === "win32") {
+    const child = spawn("cmd.exe", ["/c", "start", "", "/min", APPLY_BAT], {
+      cwd: ROOT,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+    return;
+  }
+  const child = spawn("bash", [APPLY_SH], {
     cwd: ROOT,
     detached: true,
     stdio: "ignore",
-    windowsHide: true,
   });
   child.unref();
 }
@@ -779,7 +954,7 @@ export async function applyUpdate(options?: {
 }): Promise<UpdateApplyResult> {
   if (!canApplyUpdate()) {
     throw new Error(
-      "자동 업데이트는 Windows 포터블 배포에서만 사용할 수 있습니다. 수동으로 ZIP을 받아 data 폴더를 유지한 채 교체하세요.",
+      "자동 업데이트는 포터블 배포(Windows / Linux / macOS)에서만 사용할 수 있습니다. 수동으로 ZIP을 받아 data 폴더를 유지한 채 교체하세요.",
     );
   }
 
@@ -818,13 +993,17 @@ export async function applyUpdate(options?: {
     requireChecksum,
   });
 
-  expandZipWindows(DOWNLOAD_ZIP, EXTRACT_DIR);
+  expandZip(DOWNLOAD_ZIP, EXTRACT_DIR);
   const packageRoot = findPackageRoot(EXTRACT_DIR);
   if (!existsSync(join(packageRoot, "server.cjs"))) {
     throw new Error("패키지에 server.cjs가 없습니다.");
   }
 
-  writeApplyScript(packageRoot);
+  if (process.platform === "win32") {
+    writeApplyScriptWindows(packageRoot);
+  } else {
+    writeApplyScriptUnix(packageRoot);
+  }
   launchApplyScript();
 
   const fromVersion = getCurrentVersion();

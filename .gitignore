@@ -18,11 +18,14 @@ data/*.db-*
 data/github-token.txt
 data/update-feed.url
 
-# Windows portable release
+# Portable release outputs
 release-win/
+release-linux/
+release-mac-arm64/
+release-mac-x64/
 .cache/
 updates/
-tonghab-minwon-info-windows*.zip
+tonghab-minwon-info-*-portable-v*.zip
 update.json
 update.ini
 update-site/tonghab-minwon-info/

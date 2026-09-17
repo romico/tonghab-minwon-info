@@ -399,8 +399,8 @@ export function SettingsPage() {
           </div>
           {updateInfo?.updateAvailable && !updateInfo.canApply && (
             <p className="settings-help">
-              이 PC(Mac·개발 환경)에서는 자동 적용이 지원되지 않습니다. Windows
-              포터블에서 업데이트하거나, ZIP을 받아 수동으로 교체하세요.
+              이 PC에서는 자동 적용이 지원되지 않습니다(개발 환경 등). 포터블 ZIP을
+              받아 data 폴더를 유지한 채 교체하세요.
             </p>
           )}
         </div>
