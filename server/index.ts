@@ -972,9 +972,15 @@ app.post("/api/reports/snapshots", requireAuth, (req, res) => {
   res.status(201).json({ snapshot: snap });
 });
 
-app.get("/api/complaints", requireAuth, (_req, res) => {
-  // 사진 data URL을 제외해 대량 등록 후에도 목록이 로드되도록 한다.
-  res.json({ complaints: listComplaintsLite() });
+app.get("/api/complaints", requireAuth, (req, res) => {
+  const withMedia =
+    req.query.media === "1" ||
+    req.query.media === "true" ||
+    req.query.includeMedia === "1";
+  // 기본은 사진 본문 제외. 엑셀 등에서만 media=1 로 전체 로드.
+  res.json({
+    complaints: withMedia ? listComplaints() : listComplaintsLite(),
+  });
 });
 
 app.get("/api/complaints/:id", requireAuth, (req, res) => {

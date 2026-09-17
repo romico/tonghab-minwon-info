@@ -2,6 +2,16 @@
   "source": "CHANGELOG.md",
   "entries": [
     {
+      "version": "0.1.16",
+      "date": "2026-09-17",
+      "fixed": [
+        "통합·관리대장 엑셀 내보내기 시 사진 미첨부 — 내보내기 시 사진 본문 재로드"
+      ],
+      "changed": [
+        "공식 소개 주소 minwon.uany.net 안내"
+      ]
+    },
+    {
       "version": "0.1.15",
       "date": "2026-09-17",
       "added": [

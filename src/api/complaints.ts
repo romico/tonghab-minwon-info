@@ -1,9 +1,34 @@
 import type { Complaint, ComplaintInput } from "@/schema";
 import { apiRequest } from "./client";
 
-export async function apiListComplaints(): Promise<Complaint[]> {
-  const data = await apiRequest<{ complaints: Complaint[] }>("/api/complaints");
+export async function apiListComplaints(options?: {
+  includeMedia?: boolean;
+}): Promise<Complaint[]> {
+  const qs = options?.includeMedia ? "?media=1" : "";
+  const data = await apiRequest<{ complaints: Complaint[] }>(
+    `/api/complaints${qs}`,
+  );
   return data.complaints;
+}
+
+/** 엑셀 등: 목록(lite) 순서·필터를 유지한 채 사진 본문을 채운다. */
+export async function apiHydrateComplaintMedia(
+  items: Complaint[],
+): Promise<Complaint[]> {
+  if (items.length === 0) return items;
+  const full = await apiListComplaints({ includeMedia: true });
+  const byId = new Map(full.map((c) => [c.id, c]));
+  return items.map((c) => {
+    const rich = byId.get(c.id);
+    if (!rich) return c;
+    return {
+      ...c,
+      photos: rich.photos,
+      photoReceiptUrl: rich.photoReceiptUrl,
+      photoBeforeUrl: rich.photoBeforeUrl,
+      photoAfterUrl: rich.photoAfterUrl,
+    };
+  });
 }
 
 export async function apiGetComplaint(id: string): Promise<Complaint> {

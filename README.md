@@ -6,7 +6,8 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | 0.1.15 ([변경 이력](./CHANGELOG.md)) |
+| 버전 | 0.1.16 ([변경 이력](./CHANGELOG.md)) |
+| 소개·다운로드 | https://minwon.uany.net/ |
 | 기본 계정 | `admin` / `admin` |
 | 개발 UI | http://localhost:5173 |
 | API / 프로덕션 | http://127.0.0.1:8787 |

@@ -372,8 +372,10 @@ export function LedgerPage() {
     }
     setExporting(true);
     try {
+      const { apiHydrateComplaintMedia } = await import("@/api/complaints");
       const { exportLedgerExcel } = await import("@/export/ledgerExcel");
-      await exportLedgerExcel(displayComplaints, {
+      const withPhotos = await apiHydrateComplaintMedia(displayComplaints);
+      await exportLedgerExcel(withPhotos, {
         maskPersonalInfo: exportMask,
         includeImages: true,
       });

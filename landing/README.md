@@ -27,7 +27,8 @@ npx wrangler login   # 최초 1회
 npm run deploy:landing
 ```
 
-프로젝트명 기본값: `tonghab-minwon` → `https://tonghab-minwon.pages.dev`
+프로젝트명 기본값: `tonghab-minwon`  
+공개 주소: **https://minwon.uany.net/** (`*.pages.dev` 미리보기와 동일 프로젝트)
 
 ## 다운로드 URL
 

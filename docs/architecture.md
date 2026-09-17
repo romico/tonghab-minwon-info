@@ -147,7 +147,7 @@ flowchart LR
 | POST | `/api/auth/change-password` | ✓ | 비밀번호 변경 |
 | GET/PUT | `/api/settings` | ✓ | 세션 TTL |
 | GET | `/api/audit` | ✓ | 감사 로그 |
-| GET | `/api/complaints` | ✓ | 목록 (사진 본문 제외 lite) |
+| GET | `/api/complaints` | ✓ | 목록 (기본 lite). `?media=1` 이면 사진 포함 |
 | GET | `/api/complaints/:id` | ✓ | 상세 (사진 포함) |
 | PUT | `/api/complaints` | ✓ | upsert |
 | POST | `/api/complaints` | ✓ | 단건 또는 일괄 |

@@ -34,15 +34,23 @@ function pickPhoto(
   return photos.find((p) => p.role === role);
 }
 
-function dataUrlToBuffer(dataUrl: string): { buffer: ArrayBuffer; ext: "jpeg" | "png" } | null {
-  const m = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+function dataUrlToBuffer(
+  dataUrl: string,
+): { buffer: ArrayBuffer; ext: "jpeg" | "png" } | null {
+  const m = dataUrl.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/i);
   if (!m) return null;
   const b64 = m[2]!;
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const ext = m[1]!.toLowerCase() === "png" ? "png" : "jpeg";
-  return { buffer: bytes.buffer, ext };
+  // webp는 exceljs가 jpeg/png만 받으므로 jpeg로 표기(실제 바이트는 원본; 대부분 jpeg 저장)
+  const kind = m[1]!.toLowerCase();
+  const ext = kind === "png" ? "png" : "jpeg";
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  );
+  return { buffer, ext };
 }
 
 const HEADER_FILL: ExcelJS.Fill = {

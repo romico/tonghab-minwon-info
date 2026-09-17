@@ -576,12 +576,15 @@ export function DashboardPage() {
   async function onExportExcel() {
     setExporting(true);
     try {
+      const { apiHydrateComplaintMedia } = await import("@/api/complaints");
       const { exportCombinedExcel } = await import("@/export/combinedExcel");
+      const withPhotos = await apiHydrateComplaintMedia(filteredComplaints);
       await exportCombinedExcel({
-        complaints: filteredComplaints,
+        complaints: withPhotos,
         departmentStatus,
         summary,
         daily,
+        includeImages: true,
       });
     } catch (err) {
       console.error(err);
