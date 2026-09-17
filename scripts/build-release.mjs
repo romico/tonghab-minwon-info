@@ -36,6 +36,9 @@ const DEFAULT_FEED =
 const WORKER_BASE =
   process.env.TM_UPDATE_DOWNLOAD_BASE?.trim() ||
   "https://tonghab-update-download.romico-ccb.workers.dev/download";
+/** GitHub Release 태그 — CI 태그 빌드 시 TM_RELEASE_TAG=vX.Y.Z 로 맞춤 */
+const RELEASE_TAG =
+  process.env.TM_RELEASE_TAG?.trim() || `v${APP_VERSION}`;
 
 /** @typedef {{ id: string, label: string, nodeArchive: string, nodeDirHint: string, nodeBinary: string, outDirName: string, zipName: (v: string) => string, assetPrefix: string, launcher: string }} PlatformDef */
 
@@ -287,7 +290,7 @@ function writeUsage(outDir, plat) {
 function downloadUrlFor(platformId) {
   const override = process.env.TM_UPDATE_DOWNLOAD_URL?.trim();
   if (override) return override;
-  return `${WORKER_BASE}?tag=v${APP_VERSION}&platform=${encodeURIComponent(platformId)}`;
+  return `${WORKER_BASE}?tag=${encodeURIComponent(RELEASE_TAG)}&platform=${encodeURIComponent(platformId)}`;
 }
 
 /**
@@ -443,7 +446,7 @@ const manifest = {
   sha256: primary.sha256,
   size: primary.size,
   fileName: primary.fileName,
-  htmlUrl: `https://github.com/romico/tonghab-minwon-info/releases/tag/v${APP_VERSION}`,
+  htmlUrl: `https://github.com/romico/tonghab-minwon-info/releases/tag/${RELEASE_TAG}`,
   platforms: platformsManifest,
 };
 

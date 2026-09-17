@@ -49,6 +49,7 @@ jobs:
         run: npm run release:all
         env:
           CI: "true"
+          TM_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
       - name: Read package version
         id: meta
