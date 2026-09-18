@@ -146,8 +146,16 @@ tonghab-minwon-info/
 | 브랜치 | 용도 |
 |---|---|
 | `main` | 기본 개발 브랜치. PR 대상 |
-| `master` | 최종 릴리스 전용. `main`에서 검증된 내용만 병합 |
+| `master` | 최종 릴리스 전용. `main`에서 **fast-forward만** 반영 |
 | `feat/*` · `fix/*` | 작업 브랜치 → `main`으로 PR |
+
+**히스토리는 항상 선형(linear)으로 유지합니다.** merge commit을 만들지 않습니다.
+
+| 상황 | 방법 |
+|---|---|
+| 작업 브랜치 → `main` (PR) | GitHub에서 **Squash merge** 또는 **Rebase and merge**만 사용 |
+| `main` → `master` (릴리스) | `git merge --ff-only main` (또는 `main`을 `master`에 fast-forward) |
+| 로컬이 뒤처진 경우 | `git pull --ff-only` / `git fetch` 후 rebase |
 
 기능·버그·문서 변경마다 작업 브랜치를 만듭니다.
 

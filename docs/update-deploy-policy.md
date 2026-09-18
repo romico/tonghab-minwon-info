@@ -26,8 +26,17 @@
 
 1. `main`에서 기능·수정 반영 후 `CHANGELOG.md`에 버전 섹션 작성
 2. `package.json` `version` 갱신 (필요 시 `landing/changelog.json` 동기화)
-3. `main` → `master` 병합 (최종 릴리스 반영)
+3. `main` → `master` **fast-forward만** (`git merge --ff-only main`)
 4. `master`에서 태그 게시
+
+```bash
+git switch master
+git pull --ff-only origin master
+git merge --ff-only origin/main
+git push origin master
+```
+
+`main`이 `master`의 자손이 아니면(갈라진 경우) merge commit으로 합치지 말고, 원인을 해소한 뒤 fast-forward 가능한 상태로 맞춥니다.
 
 ### 2.2 태그 게시 (정식 배포)
 
