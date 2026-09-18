@@ -820,6 +820,11 @@ a.btn-primary {
   background: var(--accent-soft);
 }
 
+/* 문서 스냅샷 모드: 개인정보 원본 토글 숨김 */
+body.docs-snapshot .pii-toggle {
+  display: none !important;
+}
+
 .edit-photos {
   margin-top: 6px;
   padding: 12px;

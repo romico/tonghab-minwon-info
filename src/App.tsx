@@ -12,6 +12,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { SummaryPage } from "@/pages/SummaryPage";
 import { AuthProvider, useAuth } from "@/store/AuthStore";
 import { ComplaintProvider } from "@/store/ComplaintStore";
+import { SnapshotMaskProvider } from "@/store/SnapshotMaskStore";
 
 function ProtectedApp() {
   const { user, authLoading } = useAuth();
@@ -65,8 +66,10 @@ function ProtectedApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ProtectedApp />
-    </AuthProvider>
+    <SnapshotMaskProvider>
+      <AuthProvider>
+        <ProtectedApp />
+      </AuthProvider>
+    </SnapshotMaskProvider>
   );
 }

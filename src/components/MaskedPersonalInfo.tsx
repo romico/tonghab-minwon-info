@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { hasPersonalInfo, maskName, maskPhone } from "@/lib/privacy";
+import { useSnapshotMask } from "@/store/SnapshotMaskStore";
 
 interface MaskedPersonalInfoProps {
   name: string;
@@ -7,18 +8,20 @@ interface MaskedPersonalInfoProps {
 }
 
 export function MaskedPersonalInfo({ name, phone }: MaskedPersonalInfoProps) {
+  const forceMask = useSnapshotMask();
   const [revealed, setRevealed] = useState(false);
-  const canReveal = hasPersonalInfo(name, phone);
+  const showRaw = !forceMask && revealed;
+  const canReveal = !forceMask && hasPersonalInfo(name, phone);
 
   return (
     <div className="pii-cell">
       <div className="pii-values">
-        <span className={revealed ? "pii-raw" : "pii-masked"}>
-          {revealed ? name || "—" : maskName(name)}
+        <span className={showRaw ? "pii-raw" : "pii-masked"}>
+          {showRaw ? name || "—" : maskName(name)}
         </span>
         {phone ? (
-          <div className={`muted ${revealed ? "pii-raw" : "pii-masked"}`}>
-            {revealed ? phone : maskPhone(phone)}
+          <div className={`muted ${showRaw ? "pii-raw" : "pii-masked"}`}>
+            {showRaw ? phone : maskPhone(phone)}
           </div>
         ) : null}
       </div>

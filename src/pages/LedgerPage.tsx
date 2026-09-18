@@ -18,6 +18,8 @@ import { HwpxImportPanel } from "@/components/HwpxImportPanel";
 import { MaskedPersonalInfo } from "@/components/MaskedPersonalInfo";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { useComplaintStore } from "@/store/ComplaintStore";
+import { useSnapshotMask } from "@/store/SnapshotMaskStore";
+import { maskName, maskPhone } from "@/lib/privacy";
 
 const LEDGER_PAGE_SIZE = 20;
 
@@ -105,6 +107,7 @@ export function LedgerPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const forceMask = useSnapshotMask();
   const {
     complaints,
     filteredComplaints,
@@ -482,20 +485,30 @@ export function LedgerPage() {
               <label className="field">
                 민원인
                 <input
-                  value={editing.complainantName}
+                  value={
+                    forceMask
+                      ? maskName(editing.complainantName)
+                      : editing.complainantName
+                  }
                   onChange={(e) =>
                     setEditing({ ...editing, complainantName: e.target.value })
                   }
                   required
+                  readOnly={forceMask}
                 />
               </label>
               <label className="field">
                 연락처
                 <input
-                  value={editing.complainantPhone ?? ""}
+                  value={
+                    forceMask
+                      ? maskPhone(editing.complainantPhone) || ""
+                      : (editing.complainantPhone ?? "")
+                  }
                   onChange={(e) =>
                     setEditing({ ...editing, complainantPhone: e.target.value })
                   }
+                  readOnly={forceMask}
                 />
               </label>
               <label className="field">
@@ -834,7 +847,11 @@ export function LedgerPage() {
                     <td>{c.location ?? "—"}</td>
                     <td>{statusBadge(c.processStatus)}</td>
                     <td>{deptName[c.departmentId]}</td>
-                    <td>{c.assigneeName ?? "—"}</td>
+                    <td>
+                      {forceMask
+                        ? maskName(c.assigneeName)
+                        : (c.assigneeName ?? "—")}
+                    </td>
                     <td>
                       <div className="toolbar">
                         <button

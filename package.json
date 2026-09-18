@@ -17,7 +17,8 @@
     "release:all": "node scripts/build-release.mjs --all",
     "deploy:update-feed": "node scripts/deploy-update-feed.mjs",
     "deploy:landing": "npx wrangler pages deploy landing --project-name tonghab-minwon --commit-dirty=true",
-    "seed:year": "node scripts/seed-year.mjs"
+    "seed:year": "node scripts/seed-year.mjs",
+    "capture:site-snapshots": "node scripts/capture-site-snapshots.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -40,6 +41,7 @@
     "@vitejs/plugin-react": "^5.0.2",
     "concurrently": "^9.2.1",
     "esbuild": "^0.25.12",
+    "playwright": "^1.55.0",
     "tsx": "^4.20.5",
     "typescript": "~5.9.2",
     "vite": "^7.1.4"

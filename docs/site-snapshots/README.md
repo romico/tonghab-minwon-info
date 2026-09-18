@@ -1,9 +1,23 @@
 # 사이트 전체 스냅샷
 
-캡처 일시: 2026-09-15  
-기준 URL: `http://localhost:5173/`  
-계정: `admin` / `admin`  
-기간 필터: 2026-08-01 ~ 2026-09-15 (샘플 민원 2건)
+캡처 일시: 2026-09-18  
+기준 URL: `http://localhost:5173/?docsSnapshot=1`  
+방식: Playwright **fullPage** (스크롤 포함 전체 페이지)  
+개인정보: `docsSnapshot=1` 모드로 **성명·연락처 마스킹 강제**(「보기」토글 숨김)  
+기간 필터: 통보일 2026-03-01 ~ 2026-09-18 (시드 민원 2건)
+
+## 재캡처
+
+```bash
+# 임시 DB로 API + Vite 기동 후
+TM_DATA_DIR=/tmp/tm-snap PORT=9000 npm run start:api
+npm run dev:web
+
+# 다른 터미널
+npm run capture:site-snapshots
+```
+
+환경변수(선택): `TM_SNAPSHOT_BASE_URL`, `TM_SNAPSHOT_PASS`(변경 후 비밀번호), `TM_SNAPSHOT_FROM` / `TM_SNAPSHOT_TO`
 
 ## 화면 목록
 
@@ -11,13 +25,13 @@
 |---|------|------|------|
 | 00 | [00-login.png](./00-login.png) | `/login` | 관리자 로그인 |
 | 01 | [01-dashboard.png](./01-dashboard.png) | `/` | 홈 · 대시보드 (KPI, 추이, 상태·부서) |
-| 02 | [02-ledger.png](./02-ledger.png) | `/ledger` | 관리대장 (검색·필터·원장 목록) |
+| 02 | [02-ledger.png](./02-ledger.png) | `/ledger` | 관리대장 (검색·필터·원장 목록, PII 마스킹) |
 | 02b | [02b-ledger-register.png](./02b-ledger-register.png) | `/ledger` | 관리대장 · 민원 등록 폼 |
 | 03 | [03-departments.png](./03-departments.png) | `/departments` | 부서별현황 |
 | 04 | [04-summary.png](./04-summary.png) | `/summary` | 총괄표 (개요·경로·분야·실국) |
 | 05 | [05-daily.png](./05-daily.png) | `/daily` | 일일보고 (경로×분야 매트릭스) |
 | 06 | [06-audit.png](./06-audit.png) | `/audit` | 감사로그 |
-| 07 | [07-settings.png](./07-settings.png) | `/settings` | 설정 (세션·비밀번호·DB 초기화) |
+| 07 | [07-settings.png](./07-settings.png) | `/settings` | 설정 (세션·비밀번호·DB·업데이트) |
 
 ## 메뉴 구조
 
