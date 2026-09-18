@@ -3,6 +3,7 @@ import { getDb } from "./db.ts";
 export type AuditAction =
   | "LOGIN_SUCCESS"
   | "LOGIN_FAIL"
+  | "LOGIN_RATE_LIMITED"
   | "LOGIN_TOTP_REQUIRED"
   | "LOGOUT"
   | "PASSWORD_CHANGE"

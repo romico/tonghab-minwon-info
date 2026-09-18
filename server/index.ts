@@ -61,6 +61,12 @@ import {
   isPortableInstall,
   saveUpdateConfig,
 } from "./update.ts";
+import {
+  assertLoginAllowed,
+  LoginRateLimitedError,
+  recordLoginFailure,
+  recordLoginSuccess,
+} from "./login-guard.ts";
 import type { Complaint, ComplaintInput } from "../src/schema/index.ts";
 import { maskName, maskPhone } from "../src/lib/privacy.ts";
 
@@ -616,13 +622,17 @@ app.post("/api/auth/login", (req, res) => {
     res.status(400).json({ error: "아이디와 비밀번호를 입력하세요." });
     return;
   }
+  const meta = clientMeta(req);
+  const userKey = username.trim();
   try {
+    assertLoginAllowed(meta.ip, userKey);
     const result = login(username, password);
     if (result.requiresTotp) {
+      // 비밀번호는 맞음 — 실패로 치지 않고 시도만 기록하지 않음(TOTP 단계에서 제한)
       auditFromReq(req, {
-        username: username.trim(),
+        username: userKey,
         action: "LOGIN_TOTP_REQUIRED",
-        summary: `${username.trim()} 2단계 인증 대기`,
+        summary: `${userKey} 2단계 인증 대기`,
       });
       res.json({
         requiresTotp: true,
@@ -631,6 +641,7 @@ app.post("/api/auth/login", (req, res) => {
       });
       return;
     }
+    recordLoginSuccess(meta.ip, result.user.username);
     setSessionCookie(res, result);
     auditFromReq(req, {
       userId: result.user.id,
@@ -646,10 +657,26 @@ app.post("/api/auth/login", (req, res) => {
       vault: result.vault,
     });
   } catch (err) {
+    if (err instanceof LoginRateLimitedError) {
+      auditFromReq(req, {
+        username: userKey,
+        action: "LOGIN_RATE_LIMITED",
+        summary: `로그인 제한: ${userKey}`,
+        detail: { retryAfterSec: err.retryAfterSec },
+      });
+      res.setHeader("Retry-After", String(err.retryAfterSec));
+      res.status(429).json({
+        error: err.message,
+        code: err.code,
+        retryAfterSec: err.retryAfterSec,
+      });
+      return;
+    }
+    recordLoginFailure(meta.ip, userKey);
     auditFromReq(req, {
-      username: username.trim(),
+      username: userKey,
       action: "LOGIN_FAIL",
-      summary: `로그인 실패: ${username.trim()}`,
+      summary: `로그인 실패: ${userKey}`,
       detail: {
         reason: err instanceof Error ? err.message : "unknown",
       },
@@ -669,8 +696,12 @@ app.post("/api/auth/login/totp", (req, res) => {
     res.status(400).json({ error: "인증 코드가 필요합니다." });
     return;
   }
+  const meta = clientMeta(req);
+  const totpUserKey = `totp:${challengeToken.slice(0, 12)}`;
   try {
+    assertLoginAllowed(meta.ip, totpUserKey);
     const result = completeTotpLogin(challengeToken, code);
+    recordLoginSuccess(meta.ip, result.user.username);
     setSessionCookie(res, result);
     auditFromReq(req, {
       userId: result.user.id,
@@ -694,6 +725,21 @@ app.post("/api/auth/login/totp", (req, res) => {
       warning: result.warning,
     });
   } catch (err) {
+    if (err instanceof LoginRateLimitedError) {
+      auditFromReq(req, {
+        action: "LOGIN_RATE_LIMITED",
+        summary: "2단계 인증 제한",
+        detail: { retryAfterSec: err.retryAfterSec },
+      });
+      res.setHeader("Retry-After", String(err.retryAfterSec));
+      res.status(429).json({
+        error: err.message,
+        code: err.code,
+        retryAfterSec: err.retryAfterSec,
+      });
+      return;
+    }
+    recordLoginFailure(meta.ip, totpUserKey);
     auditFromReq(req, {
       action: "LOGIN_FAIL",
       summary: "2단계 인증 실패",

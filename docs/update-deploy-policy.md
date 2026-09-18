@@ -104,7 +104,7 @@ npm run deploy:landing     # 소개 사이트
 |---|---|
 | 소개·다운로드 | https://minwon.uany.net/ |
 | 업데이트 피드 | https://update.uany.net/tonghab-minwon-info/update.json |
-| ZIP 다운로드 프록시 | Worker `tonghab-update-download` (`?tag=&platform=`) |
+| ZIP 다운로드 프록시 | Worker `tonghab-update-download` (`?tag=&platform=`) — **공개 릴리스만**(302). 비공개 중계는 `ALLOW_PRIVATE_RELEASES` 옵트인 |
 | 소스·릴리스 | https://github.com/romico/tonghab-minwon-info/releases |
 
 피드 예시 스키마: [`docs/update.example.json`](./update.example.json)
@@ -114,7 +114,7 @@ npm run deploy:landing     # 소개 사이트
 ## 6. 보안·운영 메모
 
 - ZIP·피드는 공개 채널이다. **DB·개인정보는 포함하지 않는다.**
-- GitHub Releases ZIP을 Worker가 중계해 클라이언트에 토큰을 넣지 않는다.
+- GitHub Releases ZIP은 Worker가 **공개 릴리스만** 중계한다(토큰 없이 `browser_download_url` 302). 비공개 릴리스 우회를 막기 위해 `ALLOW_PRIVATE_RELEASES` 기본값은 off.
 - 설정에서 GitHub 토큰을 요구하지 않는 것이 기본이다 (`TM_GITHUB_TOKEN`은 피드 장애 시 폴백 조회용).
 - SmartScreen·OS 게이트키퍼 경고는 서명되지 않은 포터블의 일반적 현상이다. 내부 배포 절차에 따라 안내한다.
 

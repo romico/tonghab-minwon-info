@@ -5,3 +5,5 @@ workers_dev = true
 
 [vars]
 GITHUB_REPO = "romico/tonghab-minwon-info"
+# 비공개 릴리스 중계 기본 끔 (공개 전환 시 토큰 우회 방지)
+ALLOW_PRIVATE_RELEASES = "false"

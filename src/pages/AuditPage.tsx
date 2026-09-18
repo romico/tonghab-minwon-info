@@ -15,6 +15,7 @@ const ACTION_OPTIONS = Object.entries(AUDIT_ACTION_LABELS) as Array<
 function actionTone(action: AuditAction): string {
   if (
     action === "LOGIN_FAIL" ||
+    action === "LOGIN_RATE_LIMITED" ||
     action === "COMPLAINT_DELETE" ||
     action === "COMPLAINT_RESET_SEED"
   ) {

@@ -120,6 +120,10 @@
 | `TM_DATA_DIR` | `cwd/data` | DB 디렉터리 |
 | `TM_JSON_LIMIT` | `1mb` | 일반 요청 JSON body 상한 |
 | `TM_JSON_LARGE_LIMIT` | `50mb` | 민원 쓰기(`PUT/POST /api/complaints`, `POST …/replace`)만 |
+| `TM_LOGIN_MAX_FAILURES` | `5` | 창 안 로그인 실패 허용 횟수 |
+| `TM_LOGIN_WINDOW_MS` | `900000` | 실패 집계 창(15분) |
+| `TM_LOGIN_LOCKOUT_MS` | `900000` | 잠금 시간(15분) |
+| `TM_LOGIN_MAX_ATTEMPTS_PER_MINUTE` | `20` | IP·계정 분당 시도 상한 |
 | `NODE_ENV` | (포터블 `production`) | |
 
 요청 body: 기본 **1mb**. 사진 data URL이 실리는 민원 쓰기 API는 **인증 확인 후**만 **50mb** 파싱.
@@ -140,6 +144,7 @@
 | FR-AUTH-06 | 로그아웃 시 서버 세션 폐기 + 쿠키 제거 | |
 | FR-AUTH-07 | 비밀번호 변경: 현재 비번 확인, 새 비번 ≥4자 | 성공 시 **타 세션 revoke**, 현재 세션 유지·연장 |
 | FR-AUTH-08 | 역할(RBAC)은 없다 | username만 표시 |
+| FR-AUTH-09 | 로그인 실패 rate limit·lockout | IP·계정별. 기본 15분 창 5회 실패 → 15분 잠금, 분당 20회. `429` + `Retry-After` |
 
 **화면:** `/login`, `/settings` (세션·비밀번호).
 

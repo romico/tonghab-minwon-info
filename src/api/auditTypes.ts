@@ -1,6 +1,7 @@
 export type AuditAction =
   | "LOGIN_SUCCESS"
   | "LOGIN_FAIL"
+  | "LOGIN_RATE_LIMITED"
   | "LOGIN_TOTP_REQUIRED"
   | "LOGOUT"
   | "PASSWORD_CHANGE"
@@ -38,6 +39,7 @@ export interface AuditLog {
 export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   LOGIN_SUCCESS: "로그인 성공",
   LOGIN_FAIL: "로그인 실패",
+  LOGIN_RATE_LIMITED: "로그인 시도 제한",
   LOGIN_TOTP_REQUIRED: "2단계 인증 대기",
   LOGOUT: "로그아웃",
   PASSWORD_CHANGE: "비밀번호 변경",
