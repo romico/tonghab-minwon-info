@@ -4,6 +4,7 @@ export interface AuthUser {
   id: number;
   username: string;
   totpEnabled?: boolean;
+  mustChangePassword?: boolean;
 }
 
 export interface VaultStatus {
@@ -78,7 +79,7 @@ export async function apiChangePassword(
   newPassword: string,
   totpCode?: string,
 ): Promise<AuthSession & { ok: true }> {
-  return apiRequest("/api/auth/change-password", {
+  return apiRequest<AuthSession & { ok: true }>("/api/auth/change-password", {
     method: "POST",
     body: JSON.stringify({
       currentPassword,

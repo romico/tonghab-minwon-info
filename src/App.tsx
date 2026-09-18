@@ -4,6 +4,7 @@ import { AuditPage } from "@/pages/AuditPage";
 import { DailyPage } from "@/pages/DailyPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { DepartmentPage } from "@/pages/DepartmentPage";
+import { ForceChangePasswordPage } from "@/pages/ForceChangePasswordPage";
 import { LedgerPage } from "@/pages/LedgerPage";
 import { LegalDocPage } from "@/pages/LegalDocPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -29,6 +30,15 @@ function ProtectedApp() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/legal/:docId" element={<LegalDocPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  if (user.mustChangePassword) {
+    return (
+      <Routes>
+        <Route path="/legal/:docId" element={<LegalDocPage />} />
+        <Route path="*" element={<ForceChangePasswordPage />} />
       </Routes>
     );
   }

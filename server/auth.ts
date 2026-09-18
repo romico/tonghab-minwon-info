@@ -28,6 +28,8 @@ export interface AuthUser {
   id: number;
   username: string;
   totpEnabled: boolean;
+  /** 기본 비밀번호(admin) 사용 중 — 변경 전까지 다른 API 차단 */
+  mustChangePassword: boolean;
 }
 
 export interface AppSettings {
@@ -107,6 +109,26 @@ function ensureTotpColumns(): void {
   if (!names.has("totp_recovery_hashes")) {
     db.exec(`ALTER TABLE users ADD COLUMN totp_recovery_hashes TEXT`);
   }
+  if (!names.has("must_change_password")) {
+    db.exec(
+      `ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+}
+
+/** 아직 기본 비밀번호(admin)인 계정은 변경 강제 플래그를 켠다 */
+function syncMustChangePasswordFlags(): void {
+  const rows = getDb()
+    .prepare(`SELECT id, password_hash FROM users`)
+    .all() as Array<{ id: number; password_hash: string }>;
+  const mark = getDb().prepare(
+    `UPDATE users SET must_change_password = 1 WHERE id = ?`,
+  );
+  for (const row of rows) {
+    if (verifyPassword(DEFAULT_PASSWORD, row.password_hash)) {
+      mark.run(row.id);
+    }
+  }
 }
 
 export function initAuthTables(): void {
@@ -142,9 +164,11 @@ export function initAuthTables(): void {
   };
   if (userCount.n === 0) {
     db.prepare(
-      `INSERT INTO users (username, password_hash) VALUES (?, ?)`,
+      `INSERT INTO users (username, password_hash, must_change_password) VALUES (?, ?, 1)`,
     ).run(DEFAULT_USERNAME, hashPassword(DEFAULT_PASSWORD));
   }
+
+  syncMustChangePasswordFlags();
 
   const ttl = db
     .prepare(`SELECT value FROM app_settings WHERE key = 'session_ttl_minutes'`)
@@ -191,12 +215,14 @@ type UserRow = {
   totp_secret: string | null;
   totp_enabled: number;
   totp_recovery_hashes: string | null;
+  must_change_password: number;
 };
 
 function findUserByUsername(username: string): UserRow | null {
   const row = getDb()
     .prepare(
-      `SELECT id, username, password_hash, totp_secret, totp_enabled, totp_recovery_hashes
+      `SELECT id, username, password_hash, totp_secret, totp_enabled, totp_recovery_hashes,
+              must_change_password
        FROM users WHERE username = ?`,
     )
     .get(username) as UserRow | undefined;
@@ -206,7 +232,8 @@ function findUserByUsername(username: string): UserRow | null {
 function findUserById(id: number): UserRow | null {
   const row = getDb()
     .prepare(
-      `SELECT id, username, password_hash, totp_secret, totp_enabled, totp_recovery_hashes
+      `SELECT id, username, password_hash, totp_secret, totp_enabled, totp_recovery_hashes,
+              must_change_password
        FROM users WHERE id = ?`,
     )
     .get(id) as UserRow | undefined;
@@ -214,10 +241,12 @@ function findUserById(id: number): UserRow | null {
 }
 
 function toAuthUser(row: UserRow): AuthUser {
+  const stillDefault = verifyPassword(DEFAULT_PASSWORD, row.password_hash);
   return {
     id: row.id,
     username: row.username,
     totpEnabled: Boolean(row.totp_enabled),
+    mustChangePassword: Boolean(row.must_change_password) || stillDefault,
   };
 }
 
@@ -534,7 +563,8 @@ export function getSession(token: string | null | undefined): SessionInfo | null
   purgeExpiredSessions();
   const row = getDb()
     .prepare(
-      `SELECT s.token, s.expires_at, u.id AS user_id, u.username, u.totp_enabled
+      `SELECT s.token, s.expires_at, u.id AS user_id, u.username, u.totp_enabled,
+              u.password_hash, u.must_change_password, u.totp_secret, u.totp_recovery_hashes
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ?`,
@@ -546,6 +576,10 @@ export function getSession(token: string | null | undefined): SessionInfo | null
         user_id: number;
         username: string;
         totp_enabled: number;
+        password_hash: string;
+        must_change_password: number;
+        totp_secret: string | null;
+        totp_recovery_hashes: string | null;
       }
     | undefined;
   if (!row) return null;
@@ -560,11 +594,15 @@ export function getSession(token: string | null | undefined): SessionInfo | null
   }
   return {
     token: row.token,
-    user: {
+    user: toAuthUser({
       id: row.user_id,
       username: row.username,
-      totpEnabled: Boolean(row.totp_enabled),
-    },
+      password_hash: row.password_hash,
+      totp_enabled: row.totp_enabled,
+      totp_secret: row.totp_secret,
+      totp_recovery_hashes: row.totp_recovery_hashes,
+      must_change_password: row.must_change_password,
+    }),
     expiresAt: row.expires_at,
     ttlMinutes: getSettings().sessionTtlMinutes,
   };
@@ -594,6 +632,14 @@ export function changePassword(
   if (!newPassword || newPassword.length < 4) {
     throw new Error("새 비밀번호는 4자 이상이어야 합니다.");
   }
+  if (newPassword === DEFAULT_PASSWORD) {
+    throw new Error(
+      "기본 비밀번호(admin)는 사용할 수 없습니다. 다른 비밀번호를 설정하세요.",
+    );
+  }
+  if (newPassword === currentPassword) {
+    throw new Error("새 비밀번호는 현재 비밀번호와 달라야 합니다.");
+  }
   if (!verifyUserPassword(userId, currentPassword)) {
     throw new Error("현재 비밀번호가 올바르지 않습니다.");
   }
@@ -601,7 +647,8 @@ export function changePassword(
   rotateVaultPassword(currentPassword, newPassword);
   getDb()
     .prepare(
-      `UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE users SET password_hash = ?, must_change_password = 0,
+       updated_at = datetime('now') WHERE id = ?`,
     )
     .run(hashPassword(newPassword), userId);
 }

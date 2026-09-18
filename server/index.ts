@@ -159,6 +159,17 @@ function requireAuth(
     return;
   }
   req.session = session;
+  const allowWhileMustChange =
+    req.method === "POST" &&
+    (req.path === "/api/auth/change-password" ||
+      req.path.endsWith("/auth/change-password"));
+  if (session.user.mustChangePassword && !allowWhileMustChange) {
+    res.status(403).json({
+      error: "기본 비밀번호를 변경한 뒤 이용할 수 있습니다.",
+      code: "MUST_CHANGE_PASSWORD",
+    });
+    return;
+  }
   next();
 }
 
@@ -798,6 +809,7 @@ app.post("/api/auth/change-password", requireAuth, (req, res) => {
     });
     res.json({
       ok: true,
+      user: session.user,
       expiresAt: session.expiresAt,
       ttlMinutes: session.ttlMinutes,
       vault: getVaultStatus(),
@@ -1157,7 +1169,7 @@ function announceListen(port: number): void {
   console.log(`통합민원정보      ${url}`);
   console.log(`DB 파일           ${DB_PATH}`);
   if (SERVE_STATIC) console.log(`정적 파일         ${DIST_DIR}`);
-  console.log(`기본 계정         admin / admin`);
+  console.log(`기본 계정         admin / admin (최초 로그인 시 변경 필수)`);
   if (port !== PORT) {
     console.log(`(PORT ${PORT} unavailable - using ${port})`);
   }

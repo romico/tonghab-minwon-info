@@ -9,7 +9,7 @@
 | 버전 | 0.1.18 ([변경 이력](./CHANGELOG.md)) |
 | 소개·다운로드 | https://minwon.uany.net/ |
 | 업데이트 피드 | https://update.uany.net/tonghab-minwon-info/update.json |
-| 기본 계정 | `admin` / `admin` (설정에서 변경 · 패키지 `readme.txt`에도 안내) |
+| 기본 계정 | `admin` / `admin` (**최초 로그인 시 변경 필수**) |
 | 법적 고지 | 앱 내 `/legal/…` · 설정 「민원 AX 정보」 (로그인 전 열람 가능) |
 | 개발 UI | http://localhost:5173 |
 | API / 프로덕션 | http://127.0.0.1:8787 |

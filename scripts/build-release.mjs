@@ -238,7 +238,7 @@ function writeBatLauncher(outDir) {
     "echo  SERVER RUNNING",
     "echo  Preferred http://%HOST%:%PORT%",
     "echo  (auto-fallback if Windows blocks the port)",
-    "echo  login: admin / admin",
+    "echo  login: admin / admin (must change on first login)",
     "echo  Press Ctrl+C to stop, then return to menu",
     "echo ========================================",
     "echo.",
@@ -544,7 +544,7 @@ function writeUsage(outDir, plat) {
 ■ 실행 방법
   1. ZIP을 원하는 위치에 압축 해제합니다.
   2. "${launcher}" 를 실행합니다. (메뉴 TUI)
-  3. 메뉴에서 1) 실행 → 브라우저에서 admin / admin 으로 로그인합니다.
+  3. 메뉴에서 1) 실행 → 브라우저에서 admin / admin 으로 로그인한 뒤, 안내 화면에서 비밀번호를 반드시 변경합니다.
      · 초기 계정은 설정에서 변경하세요.
      · 로그인 시 개인정보 DB 암호화가 잠금 해제됩니다.
   4. 메뉴: 1 실행 / 2 중지 / 3 재실행 / 4 강제종료(고아 프로세스 포함) / 5 종료
