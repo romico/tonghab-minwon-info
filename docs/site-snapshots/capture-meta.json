@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-09-18T01:18:49.266Z",
+  "baseUrl": "http://localhost:5173",
+  "fullPage": true,
+  "docsSnapshot": true,
+  "piiMasked": true,
+  "periodFrom": "2026-03-01",
+  "periodTo": "2026-09-18",
+  "files": [
+    "00-login.png",
+    "01-dashboard.png",
+    "02-ledger.png",
+    "02b-ledger-register.png",
+    "03-departments.png",
+    "04-summary.png",
+    "05-daily.png",
+    "06-audit.png",
+    "07-settings.png"
+  ]
+}
