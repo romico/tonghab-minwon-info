@@ -12,6 +12,16 @@ docs/*.hwpx
 docs/*.xlsx
 .venv-hwpx/
 
+# Sample generator outputs (local only — do not commit)
+docs/sample/generated/
+docs/sample/preview/
+docs/sample/__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Local report drafts
+docs/report/*.xlsx
+
 # SQLite
 data/*.db
 data/*.db-*

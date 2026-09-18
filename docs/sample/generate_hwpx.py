@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""테스트자료 1/2/5.hwpx 템플릿 기반 유사 시민불편 수렴 관리카드 3종 x 500건 생성
+"""테스트자료 1/2/5.hwpx 템플릿 기반 유사 시민불편 수렴 관리카드 생성기.
+
 - 형식1: 테스트자료 1.hwpx (수렴 및 관리카드 A)
 - 형식2: 테스트자료 2.hwpx (수렴 및 관리카드 B, 현장사진 5칸)
 - 형식5: 테스트자료 5.hwpx (수렴 및 관리카드 C, 민원접수 표기)
 - 날짜: 2026.03.01 ~ 2026.08.31 (평일 가중)
 - BinData/Preview 이미지는 템플릿 원본 재사용
+
+산출물(`generated/`, `preview/`)은 .gitignore 대상이며 커밋하지 않는다.
+실행: python3 docs/sample/generate_hwpx.py [--per-form N]
 """
-import zipfile, re, random, json
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import re
+import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
-BASE = Path("/Users/bongkrazkim/workspace/tonghab-minwon-info/docs/sample")
+BASE = Path(__file__).resolve().parent
 OUT = BASE / "generated"
-OUT.mkdir(exist_ok=True)
 PREVIEW = BASE / "preview"
-PREVIEW.mkdir(exist_ok=True)
 SEED = 20260916
-PER_FORM = 500
-random.seed(SEED)
+DEFAULT_PER_FORM = 500
 
 DONGS = ["중앙동","풍남동","노송동","완산동","동서학동","서서학동","중화산1동","중화산2동",
          "평화1동","평화2동","서신동","삼천1동","삼천2동","삼천3동","효자1동","효자2동",
@@ -243,23 +250,48 @@ def build_from_template(template, repl, out_path):
             zout.writestr(zi, data[it.filename])
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="테스트자료 HWPX 템플릿으로 유사 수렴관리카드 샘플을 생성합니다.",
+    )
+    parser.add_argument(
+        "--per-form",
+        type=int,
+        default=DEFAULT_PER_FORM,
+        metavar="N",
+        help=f"형식당 생성 건수 (기본 {DEFAULT_PER_FORM})",
+    )
+    args = parser.parse_args()
+    per_form = max(1, args.per_form)
+
+    OUT.mkdir(exist_ok=True)
+    PREVIEW.mkdir(exist_ok=True)
+    random.seed(SEED)
+
     templates = {
         1: BASE / "테스트자료 1.hwpx",
         2: BASE / "테스트자료 2.hwpx",
         5: BASE / "테스트자료 5.hwpx",
     }
+    for path in templates.values():
+        if not path.is_file():
+            raise SystemExit(f"템플릿 없음: {path}")
+
     builders = {1: build_section1, 2: build_section2, 5: build_section5}
-    master = [gen_record() for _ in range(PER_FORM)]
-    (OUT / "records.json").write_text(json.dumps(master, ensure_ascii=False, default=str), "utf-8")
+    master = [gen_record() for _ in range(per_form)]
+    (OUT / "records.json").write_text(
+        json.dumps(master, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
 
     for form in (1, 2, 5):
         tpl = templates[form]
-        b = builders[form]
+        build = builders[form]
         for i, r in enumerate(master, 1):
             out = OUT / f"수렴관리카드_{form}_{i:03d}_{r['date']:%Y%m%d}.hwpx"
-            build_from_template(tpl, b(r), out)
-        print(f"형식 {form}: {PER_FORM}건 완료", flush=True)
-    print("전체 완료")
+            build_from_template(tpl, build(r), out)
+        print(f"형식 {form}: {per_form}건 → {OUT}", flush=True)
+    print(f"전체 완료 (gitignore: {OUT.name}/, {PREVIEW.name}/)")
+
 
 if __name__ == "__main__":
     main()
