@@ -1,15 +1,16 @@
 # 멀티 플랫폼 포터블 ZIP 빌드 (Windows / Linux / macOS)
 # - Ubuntu에서 각 OS용 Node 런타임을 번들
 # - tag(v*) push 시 GitHub Release 자동 게시 + update.json 배포
+# - main: 개발 CI / master: 릴리스 직전 검증 / v*: 정식 배포
 name: Portable Release
 
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [main, master]
     tags: ["v*"]
   pull_request:
-    branches: [master]
+    branches: [main]
 
 concurrency:
   group: portable-release-${{ github.workflow }}-${{ github.ref }}

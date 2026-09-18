@@ -8,7 +8,7 @@
 
 | 항목 | 현재 기준 |
 |---|---|
-| 기본 브랜치 | `master` |
+| 기본 브랜치 | `main` (개발) · `master` (최종 릴리스 전용) |
 | 앱 유형 | React 단일 페이지 애플리케이션 + Express API |
 | 언어 | TypeScript |
 | 개발 런타임 | Node.js 22 이상 |
@@ -18,7 +18,7 @@
 | 개발 API 주소 | `http://127.0.0.1:9000` |
 | 포터블 배포 | Windows / macOS / Linux 포터블 ZIP (기본 포트 9000) |
 
-`master`에는 기능 코드와 문서만 커밋합니다. 런타임 DB, 빌드 산출물, 로컬 환경 파일, 포터블 패키지는 `.gitignore` 대상입니다. 운영 데이터가 들어 있는 `data/tonghab-minwon.db`는 절대 커밋하지 않습니다.
+`main`에서 일상 개발·PR을 진행하고, 최종 릴리스 시에만 `master`로 반영합니다. 런타임 DB, 빌드 산출물, 로컬 환경 파일, 포터블 패키지는 `.gitignore` 대상입니다. 운영 데이터가 들어 있는 `data/tonghab-minwon.db`는 절대 커밋하지 않습니다.
 
 > Windows에서 `listen EACCES` 가 나면 TCP 제외 범위를 의하세요: [`portable-windows-port-troubleshooting.md`](./portable-windows-port-troubleshooting.md)
 
@@ -143,6 +143,12 @@ tonghab-minwon-info/
 
 ### 6.1 브랜치와 커밋
 
+| 브랜치 | 용도 |
+|---|---|
+| `main` | 기본 개발 브랜치. PR 대상 |
+| `master` | 최종 릴리스 전용. `main`에서 검증된 내용만 병합 |
+| `feat/*` · `fix/*` | 작업 브랜치 → `main`으로 PR |
+
 기능·버그·문서 변경마다 작업 브랜치를 만듭니다.
 
 ```bash
@@ -200,13 +206,14 @@ npm run release:win
 
 스크립트는 프론트엔드를 빌드하고, Windows용 Node.js 런타임과 번들된 API를 포함한 `release-win/` 디렉터리와 ZIP을 생성합니다. 생성물은 `.gitignore` 대상입니다.
 
-GitHub Actions 워크플로는 [`.github/workflows/windows-portable.yml`](../.github/workflows/windows-portable.yml)에 있습니다.
+GitHub Actions 워크플로는 [`.github/workflows/portable-release.yml`](../.github/workflows/portable-release.yml)에 있습니다.
 
 | 트리거 | 결과 |
 |---|---|
-| `master` push 또는 Pull Request | 포터블 ZIP 빌드 및 Artifact 업로드 |
+| `main` push 또는 `main` 대상 Pull Request | 포터블 ZIP 빌드 및 Artifact 업로드 (개발 검증) |
+| `master` push | 릴리스 직전 검증 빌드 |
 | `workflow_dispatch` | 수동 빌드 |
-| `v*` 태그 | Artifact 업로드 및 GitHub Release 게시 |
+| `v*` 태그 (보통 `master`에서) | Artifact 업로드 및 GitHub Release·업데이트 피드 게시 |
 
 릴리스 태그를 만들 때는 버전과 `package.json`의 버전이 일치하는지 먼저 확인합니다.
 

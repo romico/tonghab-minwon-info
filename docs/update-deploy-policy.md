@@ -24,13 +24,16 @@
 
 ### 2.1 준비
 
-1. 기능·수정 반영 후 `CHANGELOG.md`에 버전 섹션 작성
+1. `main`에서 기능·수정 반영 후 `CHANGELOG.md`에 버전 섹션 작성
 2. `package.json` `version` 갱신 (필요 시 `landing/changelog.json` 동기화)
-3. `master`에 커밋·푸시
+3. `main` → `master` 병합 (최종 릴리스 반영)
+4. `master`에서 태그 게시
 
 ### 2.2 태그 게시 (정식 배포)
 
 ```bash
+git switch master
+git pull origin master
 git tag v0.1.17
 git push origin v0.1.17
 ```
