@@ -85,7 +85,30 @@ initAuditTable();
 initSnapshotTable();
 
 const app = express();
-app.use(express.json({ limit: "100mb" }));
+
+/** 일반 API: 작은 JSON. 민원(사진 base64) 쓰기는 인증 후에만 큰 limit. */
+const JSON_LIMIT_DEFAULT = process.env.TM_JSON_LIMIT?.trim() || "1mb";
+const JSON_LIMIT_LARGE = process.env.TM_JSON_LARGE_LIMIT?.trim() || "50mb";
+
+function isLargeJsonPath(req: express.Request): boolean {
+  return (
+    (req.method === "POST" || req.method === "PUT") &&
+    (req.path === "/api/complaints" || req.path === "/api/complaints/replace")
+  );
+}
+
+function drainRequest(req: express.Request): void {
+  req.on("error", () => {});
+  req.resume();
+}
+
+app.use((req, res, next) => {
+  if (isLargeJsonPath(req)) {
+    next();
+    return;
+  }
+  express.json({ limit: JSON_LIMIT_DEFAULT })(req, res, next);
+});
 
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {};
@@ -171,6 +194,30 @@ function requireAuth(
     return;
   }
   next();
+}
+
+/** 민원 쓰기: 세션 확인 후에만 대용량 JSON 파싱 (미인증 DoS 완화) */
+function requireAuthLargeJson(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void {
+  const session = getSession(readToken(req));
+  if (!session) {
+    drainRequest(req);
+    res.status(401).json({ error: "로그인이 필요합니다." });
+    return;
+  }
+  if (session.user.mustChangePassword) {
+    drainRequest(req);
+    res.status(403).json({
+      error: "기본 비밀번호를 변경한 뒤 이용할 수 있습니다.",
+      code: "MUST_CHANGE_PASSWORD",
+    });
+    return;
+  }
+  req.session = session;
+  express.json({ limit: JSON_LIMIT_LARGE })(req, res, next);
 }
 
 function auditFromReq(
@@ -1006,7 +1053,7 @@ app.get("/api/complaints/:id", requireAuth, (req, res) => {
   res.json({ complaint: item });
 });
 
-app.put("/api/complaints", requireAuth, (req, res) => {
+app.put("/api/complaints", requireAuthLargeJson, (req, res) => {
   const input = req.body as ComplaintInput;
   const isUpdate = Boolean(input.id && complaintExists(input.id));
   const item = upsertComplaint(input);
@@ -1018,7 +1065,7 @@ app.put("/api/complaints", requireAuth, (req, res) => {
   res.json({ complaint: item });
 });
 
-app.post("/api/complaints", requireAuth, (req, res) => {
+app.post("/api/complaints", requireAuthLargeJson, (req, res) => {
   const body = req.body as ComplaintInput | { items: ComplaintInput[] };
   if ("items" in body && Array.isArray(body.items)) {
     const items = addComplaints(body.items).map(stripComplaintMedia);
@@ -1052,7 +1099,7 @@ app.post("/api/complaints", requireAuth, (req, res) => {
   res.status(201).json({ complaint: item });
 });
 
-app.post("/api/complaints/replace", requireAuth, (req, res) => {
+app.post("/api/complaints/replace", requireAuthLargeJson, (req, res) => {
   const body = req.body as { complaints?: Complaint[] };
   const items = replaceAll(body.complaints ?? []);
   auditFromReq(req, {
@@ -1137,6 +1184,16 @@ app.use(
   ) => {
     if (err instanceof VaultLockedError) {
       res.status(401).json({ error: err.message });
+      return;
+    }
+    const bodyErr = err as { type?: string; status?: number; message?: string };
+    if (
+      bodyErr?.type === "entity.too.large" ||
+      bodyErr?.status === 413
+    ) {
+      res.status(413).json({
+        error: "요청 본문이 너무 큽니다. 사진 수를 줄이거나 압축 후 다시 시도하세요.",
+      });
       return;
     }
     console.error(err);

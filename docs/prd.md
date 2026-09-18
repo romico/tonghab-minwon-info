@@ -118,9 +118,11 @@
 | `PORT` | `9000` | HTTP 포트 (Windows TCP 제외 범위에 8787이 걸리는 PC 대비) |
 | `HOST` | `127.0.0.1` | 바인딩 |
 | `TM_DATA_DIR` | `cwd/data` | DB 디렉터리 |
+| `TM_JSON_LIMIT` | `1mb` | 일반 요청 JSON body 상한 |
+| `TM_JSON_LARGE_LIMIT` | `50mb` | 민원 쓰기(`PUT/POST /api/complaints`, `POST …/replace`)만 |
 | `NODE_ENV` | (포터블 `production`) | |
 
-요청 body limit: **50mb** (사진 data URL 대비).
+요청 body: 기본 **1mb**. 사진 data URL이 실리는 민원 쓰기 API는 **인증 확인 후**만 **50mb** 파싱.
 
 ---
 

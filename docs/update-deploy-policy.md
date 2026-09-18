@@ -42,9 +42,9 @@ git push origin v0.1.17
 | 빌드 | `npm run release:all` → OS별 ZIP + `update.json` / `update.ini` |
 | Artifact | ZIP·매니페스트 업로드 (30일) |
 | GitHub Release | ZIP·매니페스트 첨부, 릴리스 노트 자동 생성 |
-| 피드 배포 | `UANY_CLOUDFLARE_API_TOKEN` 있으면 `npm run deploy:update-feed` |
+| 피드 배포 | `UANY_CLOUDFLARE_API_TOKEN` + `UANY_CLOUDFLARE_ACCOUNT_ID` 있으면 `npm run deploy:update-feed` |
 
-토큰이 없으면 Pages 피드 배포만 건너뛴다. 이 경우 로컬에서 수동 배포한다.
+토큰·계정 ID 시크릿이 없으면 Pages 피드 배포만 건너뛴다. 이 경우 로컬에서 수동 배포한다.
 
 ### 2.3 수동·로컬 빌드
 

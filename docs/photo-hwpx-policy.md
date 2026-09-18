@@ -14,7 +14,7 @@
 | 사진 저장소 | **별도 파일/Blob 스토어 없음**(현행). `data:image/...;base64,...` URL을 민원 JSON에 포함 |
 | 영속 위치 | SQLite `complaints.data` (Complaint JSON) |
 | 서버 역할 | JSON CRUD만 수행. 이미지 업로드 전용 API 없음 |
-| 용량 | Express JSON limit **100mb**. HWPX 유입 시 JPEG 압축 필수 |
+| 용량 | Express JSON: 기본 **1mb**, 민원 쓰기 API는 **인증 후** **50mb**. HWPX 유입 시 JPEG 압축 필수 |
 | 용량·성능 분산 | 파일 분리(방안 1)는 **관리 이슈로 보류**. 압축 강화(방안 2)는 **QA 검증 중**. **아카이브 전환·복원(방안 5) MVP 구현**. 상세는 [storage-scaling-decision.md](./storage-scaling-decision.md) |
 | 감사 | 파싱 자체는 감사하지 않음. **등록 API** 성공 시 `COMPLAINT_BATCH_CREATE` 등 기록 |
 
