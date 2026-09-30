@@ -1,0 +1,48 @@
+name: dns-ainine-once
+on:
+  workflow_dispatch:
+jobs:
+  upsert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upsert ainine DNS A records
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.UANY_CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "missing UANY_CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+          curl -sS -o /tmp/verify.json -w 'verify_http=%{http_code}\n' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            https://api.cloudflare.com/client/v4/user/tokens/verify
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/verify.json'))
+          print('verify_success', d.get('success'), 'status', (d.get('result') or {}).get('status'), 'errors', d.get('errors'))
+          if not d.get('success'):
+            raise SystemExit(1)
+          PY
+          ZONE=f9cdc08cc6399901e4d205d34cc194ed
+          ORIGIN=125.139.56.69
+          upsert() {
+            local name="$1"
+            local fqdn="${name}.uany.net"
+            local existing id body
+            existing=$(curl -sS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones/${ZONE}/dns_records?type=A&name=${fqdn}")
+            id=$(python3 -c 'import json,sys; d=json.load(sys.stdin); r=d.get("result") or []; print(r[0]["id"] if r else "")' <<<"$existing")
+            body=$(python3 -c 'import json,sys; print(json.dumps({"type":"A","name":sys.argv[1],"content":sys.argv[2],"ttl":1,"proxied":True,"comment":"ainine edge-proxy 69"}))' "$name" "$ORIGIN")
+            if [ -n "$id" ]; then
+              curl -sS -X PUT -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' \
+                "https://api.cloudflare.com/client/v4/zones/${ZONE}/dns_records/${id}" --data "$body" \
+                | python3 -c 'import sys,json; d=json.load(sys.stdin); r=d.get("result") or {}; print("update", d.get("success"), r.get("name"), "proxied="+str(r.get("proxied")), d.get("errors"))'
+            else
+              curl -sS -X POST -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' \
+                "https://api.cloudflare.com/client/v4/zones/${ZONE}/dns_records" --data "$body" \
+                | python3 -c 'import sys,json; d=json.load(sys.stdin); r=d.get("result") or {}; print("create", d.get("success"), r.get("name"), "proxied="+str(r.get("proxied")), d.get("errors"))'
+            fi
+          }
+          upsert ainine
+          upsert ainine-api
