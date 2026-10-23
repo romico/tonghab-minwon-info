@@ -97,6 +97,7 @@ export function SettingsPage() {
   const [disableCode, setDisableCode] = useState("");
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [nodeVersion, setNodeVersion] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const [updateErr, setUpdateErr] = useState<string | null>(null);
@@ -166,8 +167,14 @@ export function SettingsPage() {
         setSettingsErr(err instanceof Error ? err.message : "설정 로드 실패");
       });
     void apiGetVersion()
-      .then((v) => setAppVersion(v.version))
-      .catch(() => setAppVersion(null));
+      .then((v) => {
+        setAppVersion(v.version);
+        setNodeVersion(v.nodeVersion);
+      })
+      .catch(() => {
+        setAppVersion(null);
+        setNodeVersion(null);
+      });
     void loadStorage();
   }, []);
 
@@ -649,7 +656,7 @@ export function SettingsPage() {
           {updateErr && <p className="settings-alert is-error">{updateErr}</p>}
           {updateMsg && <p className="settings-alert is-ok">{updateMsg}</p>}
 
-          <div className="settings-status">
+          <div className="settings-status settings-status-4">
             <div className="settings-stat">
               <span className="settings-stat-label">현재 버전</span>
               <strong className="settings-stat-value settings-stat-value-sm">
@@ -660,6 +667,12 @@ export function SettingsPage() {
               <span className="settings-stat-label">최신 버전</span>
               <strong className="settings-stat-value settings-stat-value-sm">
                 {updateInfo?.latestVersion ?? "—"}
+              </strong>
+            </div>
+            <div className="settings-stat">
+              <span className="settings-stat-label">Node.js</span>
+              <strong className="settings-stat-value settings-stat-value-sm">
+                {nodeVersion ?? "—"}
               </strong>
             </div>
             <div className="settings-stat">
@@ -1363,6 +1376,7 @@ export function SettingsPage() {
             <div className="about-hero-meta">
               <div className="about-hero-ver">
                 <span>{appVersion ? `v${appVersion}` : "버전 확인 중…"}</span>
+                <span>{nodeVersion ? `Node.js ${nodeVersion}` : "Node.js"}</span>
                 <span>{OPERATOR}</span>
               </div>
               <a

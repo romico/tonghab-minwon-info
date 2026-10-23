@@ -37,6 +37,8 @@ export interface UpdateConfig {
 
 export interface AppVersionInfo {
   version: string;
+  /** 실행 중인 런타임. 예: v22.23.4 */
+  nodeVersion: string;
   portable: boolean;
 }
 

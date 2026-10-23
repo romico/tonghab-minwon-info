@@ -171,7 +171,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
   license: {
     id: "license",
     title: "라이선스 정책",
-    updatedAt: "2026-09-17",
+    updatedAt: "2026-10-23",
     summary: "본 제품(앱 본체)과 동봉 구성 요소의 이용 허가 범위입니다.",
     blocks: [
       { type: "h3", text: "1. 앱 본체" },
@@ -187,7 +187,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
       {
         type: "ul",
         items: [
-          "패키지에 포함된 Node.js 런타임은 Node.js 프로젝트의 라이선스(MIT 등)를 따릅니다.",
+          "패키지에 포함된 Node.js 22.23.4 런타임은 Node.js 프로젝트의 라이선스(MIT 등)를 따릅니다.",
           "런타임 자체는 본 앱 라이선스와 별개로 해당 프로젝트 조건을 준수해야 합니다.",
         ],
       },
@@ -206,40 +206,44 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
   opensource: {
     id: "opensource",
     title: "오픈소스 고지",
-    updatedAt: "2026-09-17",
+    updatedAt: "2026-10-23",
     summary: "본 제품이 사용하는 주요 오픈소스 구성 요소와 라이선스입니다.",
     blocks: [
       {
         type: "p",
-        text: "아래는 package.json 기준 직접 의존성입니다. 각 패키지의 정확한 조건은 해당 프로젝트의 LICENSE 파일을 따릅니다.",
+        text: "아래는 이 앱에 잠긴 직접 의존성 버전입니다. 각 패키지의 정확한 조건은 해당 버전의 LICENSE 파일을 따릅니다.",
       },
       { type: "h3", text: "런타임·UI" },
       {
         type: "ul",
         items: [
-          "react, react-dom — MIT (Meta)",
-          "react-router-dom — MIT",
+          "react 19.3.0 — MIT (Meta)",
+          "react-dom 19.3.0 — MIT (Meta)",
+          "react-router-dom 7.18.3 — MIT",
         ],
       },
       { type: "h3", text: "서버·유틸" },
       {
         type: "ul",
         items: [
-          "express — MIT",
-          "exceljs — MIT",
-          "file-saver — MIT",
-          "jszip — MIT / GPLv3 dual (프로젝트 관행에 따라 MIT 사용)",
-          "qrcode — MIT",
+          "express 5.2.1 — MIT",
+          "exceljs 4.4.0 — MIT",
+          "file-saver 2.0.5 — MIT",
+          "jszip 3.10.2 — MIT OR GPL-3.0-or-later (본 제품은 MIT 조건으로 사용)",
+          "qrcode 1.5.4 — MIT",
         ],
       },
       { type: "h3", text: "빌드·개발" },
       {
         type: "ul",
         items: [
-          "vite, @vitejs/plugin-react — MIT",
-          "typescript — Apache-2.0",
-          "tsx, esbuild, concurrently — MIT / 각 프로젝트 LICENSE",
-          "Node.js (포터블 번들) — Node.js LICENSE",
+          "vite 7.3.6 — MIT",
+          "@vitejs/plugin-react 5.2.0 — MIT",
+          "typescript 5.9.3 — Apache-2.0",
+          "tsx 4.23.13 — MIT",
+          "esbuild 0.25.12 — MIT",
+          "concurrently 9.2.4 — MIT",
+          "Node.js 22.23.4 (포터블 번들) — Node.js LICENSE",
         ],
       },
       {

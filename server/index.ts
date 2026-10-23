@@ -287,6 +287,7 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     db: storage.dbPath,
     version: getCurrentVersion(),
+    nodeVersion: process.version,
     portable: isPortableInstall(),
     storage,
   });
@@ -528,6 +529,7 @@ function formatAuditBytes(bytes: number): string {
 app.get("/api/version", (_req, res) => {
   res.json({
     version: getCurrentVersion(),
+    nodeVersion: process.version,
     portable: isPortableInstall(),
   });
 });
@@ -1270,6 +1272,8 @@ function announceListen(port: number): void {
   }
   const url = `http://${HOST}:${port}`;
   console.log(`통합민원정보      ${url}`);
+  console.log(`앱 버전           ${getCurrentVersion()}`);
+  console.log(`Node.js           ${process.version}`);
   console.log(`DB 파일           ${DB_PATH}`);
   if (SERVE_STATIC) console.log(`정적 파일         ${DIST_DIR}`);
   console.log(`기본 계정         admin / admin (최초 로그인 시 변경 필수)`);

@@ -2033,6 +2033,10 @@ a.btn-primary {
   margin-bottom: 16px;
 }
 
+.settings-status-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .settings-stat {
   display: flex;
   flex-direction: column;
@@ -2285,7 +2289,8 @@ a.btn-primary {
     padding: 14px 12px 16px;
   }
 
-  .settings-status {
+  .settings-status,
+  .settings-status-4 {
     grid-template-columns: 1fr;
   }
 
