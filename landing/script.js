@@ -100,6 +100,7 @@ function renderChangelog(data) {
             ${date}
           </header>
           ${summary}
+          ${sectionList("Security", e.security)}
           ${sectionList("Added", e.added)}
           ${sectionList("Changed", e.changed)}
           ${sectionList("Fixed", e.fixed)}

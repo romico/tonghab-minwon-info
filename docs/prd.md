@@ -109,7 +109,7 @@
 | Auth | scrypt 해시, 세션 토큰 | HttpOnly 쿠키 `tm_session` |
 | Export | exceljs + file-saver | |
 | Import | jszip (HWPX=ZIP) | |
-| 배포 | `scripts/build-release.mjs` | Node 22.18.0 win-x64 번들 |
+| 배포 | `scripts/build-release.mjs` | Node 22.23.4 번들 (win/linux/mac) |
 
 환경 변수:
 

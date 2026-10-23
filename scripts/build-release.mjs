@@ -29,7 +29,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cacheDir = join(root, ".cache");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const APP_VERSION = String(pkg.version ?? "0.0.0");
-const NODE_VERSION = process.env.TM_NODE_VERSION ?? "22.18.0";
+const NODE_VERSION = process.env.TM_NODE_VERSION ?? "22.23.4";
 
 const DEFAULT_FEED =
   process.env.TM_UPDATE_FEED_URL?.trim() ||

@@ -32,7 +32,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22.18.0"
+          node-version: "22.23.4"
           cache: npm
 
       - name: Install dependencies
@@ -42,7 +42,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: node-portable-${{ hashFiles('scripts/build-release.mjs') }}-22.18.0
+          key: node-portable-${{ hashFiles('scripts/build-release.mjs') }}-22.23.4
           restore-keys: |
             node-portable-
 
