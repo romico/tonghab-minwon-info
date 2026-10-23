@@ -19,6 +19,9 @@ import { spawnSync } from "node:child_process";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const project = process.env.TM_UPDATE_PROJECT?.trim() || "tonghab-minwon-info";
 const pagesProject = process.env.TM_PAGES_PROJECT?.trim() || "uany-update";
+// uany-update 프로덕션 브랜치. 태그 체크아웃은 detached HEAD라
+// 생략하면 Preview(HEAD)로만 올라가 공개 피드가 갱신되지 않는다.
+const pagesBranch = process.env.TM_PAGES_BRANCH?.trim() || "master";
 const srcJson = join(root, "update.json");
 const siteDir = join(root, "update-site");
 const destDir = join(siteDir, project);
@@ -45,6 +48,8 @@ const r = spawnSync(
     siteDir,
     "--project-name",
     pagesProject,
+    "--branch",
+    pagesBranch,
     "--commit-dirty=true",
   ],
   { cwd: root, stdio: "inherit", shell: process.platform === "win32" },
