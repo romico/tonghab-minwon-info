@@ -29,6 +29,22 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cacheDir = join(root, ".cache");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const APP_VERSION = String(pkg.version ?? "0.0.0");
+
+/** CHANGELOG.md의 해당 버전 절. TM_UPDATE_NOTES가 있으면 그 값을 쓴다. */
+function readChangelogNotes(version) {
+  const override = process.env.TM_UPDATE_NOTES?.trim();
+  if (override) return override;
+  const path = join(root, "CHANGELOG.md");
+  if (!existsSync(path)) return "";
+  const text = readFileSync(path, "utf8");
+  const start = text.indexOf(`## [${version}]`);
+  if (start < 0) return "";
+  const afterHeading = text.indexOf("\n", start);
+  if (afterHeading < 0) return "";
+  const rest = text.slice(afterHeading + 1);
+  const next = rest.search(/^## \[/m);
+  return (next < 0 ? rest : rest.slice(0, next)).replace(/\n---\s*$/, "").trim();
+}
 const NODE_VERSION = process.env.TM_NODE_VERSION ?? "22.23.4";
 
 const DEFAULT_FEED =
@@ -745,10 +761,11 @@ if (!primary) {
 }
 
 const publishedAt = new Date().toISOString();
+const notes = readChangelogNotes(APP_VERSION);
 const manifest = {
   version: APP_VERSION,
   name: `v${APP_VERSION}`,
-  notes: process.env.TM_UPDATE_NOTES?.trim() || "",
+  notes,
   publishedAt,
   // 하위 호환: 최상위는 Windows(또는 단일 빌드) 기본값
   downloadUrl: primary.downloadUrl,
@@ -763,6 +780,7 @@ const manifest = {
 const updateJsonPath = join(root, "update.json");
 const updateIniPath = join(root, "update.ini");
 writeFileSync(updateJsonPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+writeFileSync(join(root, "release-notes.md"), notes ? `${notes}\n` : "", "utf8");
 writeFileSync(
   updateIniPath,
   [

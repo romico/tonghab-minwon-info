@@ -84,7 +84,7 @@ jobs:
             tonghab-minwon-info-macos-x64-portable-v${{ steps.meta.outputs.version }}.zip
             update.json
             update.ini
-          generate_release_notes: true
+          body_path: release-notes.md
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
