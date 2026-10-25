@@ -91,10 +91,34 @@ function requireDekForPii(): Buffer | null {
   return getActiveDek();
 }
 
+function withoutCiphertext(item: Complaint): Complaint {
+  const plain = (value: string | null | undefined): string | null =>
+    value && isEncrypted(value) ? null : (value ?? null);
+  return {
+    ...item,
+    complainantName: isEncrypted(item.complainantName)
+      ? ""
+      : (item.complainantName ?? ""),
+    complainantPhone: plain(item.complainantPhone),
+    photoReceiptUrl: plain(item.photoReceiptUrl),
+    photoBeforeUrl: plain(item.photoBeforeUrl),
+    photoAfterUrl: plain(item.photoAfterUrl),
+    photos: (item.photos ?? []).map((photo) => ({
+      ...photo,
+      url: photo.url && isEncrypted(photo.url) ? "" : photo.url,
+    })),
+  };
+}
+
 function rowToComplaint(row: { data: string }): Complaint {
   const item = normalizeComplaint(JSON.parse(row.data) as Complaint);
   const dek = requireDekForPii();
-  return dek ? unsealComplaint(item, dek) : item;
+  if (!dek) return item;
+  try {
+    return unsealComplaint(item, dek);
+  } catch {
+    return withoutCiphertext(item);
+  }
 }
 
 function toStoredPayload(item: Complaint): string {
@@ -110,7 +134,15 @@ export function listComplaints(): Complaint[] {
        ORDER BY received_at DESC, id DESC`,
     )
     .all() as { data: string }[];
-  return rows.map(rowToComplaint);
+  const items: Complaint[] = [];
+  for (const row of rows) {
+    try {
+      items.push(rowToComplaint(row));
+    } catch {
+      /* 한 건의 손상 레코드가 목록 전체를 막지 않는다 */
+    }
+  }
+  return items;
 }
 
 /** 목록용: 사진 data URL을 제거해 응답·메모리 부담을 줄인다. */
@@ -213,7 +245,11 @@ export function getComplaint(id: string): Complaint | null {
     .prepare("SELECT data FROM complaints WHERE id = ?")
     .get(id) as { data: string } | undefined;
   if (!row) return null;
-  return rowToComplaint(row);
+  try {
+    return rowToComplaint(row);
+  } catch {
+    return null;
+  }
 }
 
 export function complaintExists(id: string): boolean {

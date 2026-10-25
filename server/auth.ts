@@ -11,6 +11,7 @@ import {
   sealSecret,
   unsealSecret,
   tryUnsealSecret,
+  deriveVaultKey,
   unlockVaultWithPassword,
   rotateVaultPassword,
   getActiveDek,
@@ -317,13 +318,15 @@ export function completeTotpLogin(
     throw new Error("2단계 인증 설정을 확인할 수 없습니다.");
   }
 
-  unlockVaultWithPassword(challenge.password);
-
-  // 복구 코드는 TOTP 시크릿 복호화 없이도 검증 가능
+  const dek = deriveVaultKey(challenge.password);
+  const secretPlain = tryUnsealSecret(user.totp_secret, dek);
   const recoveryOk = consumeRecoveryCode(user, code);
-
-  const secretPlain = tryUnsealSecret(user.totp_secret, getActiveDek());
   const otpOk = secretPlain ? verifyTotp(secretPlain, code) : false;
+  if (secretPlain && !otpOk && !recoveryOk) {
+    throw new Error("인증 코드가 올바르지 않습니다.");
+  }
+
+  unlockVaultWithPassword(challenge.password);
 
   if (otpOk || recoveryOk) {
     // 시크릿 복호화 실패 상태로 들어온 경우(복구 코드) → 재설정 유도

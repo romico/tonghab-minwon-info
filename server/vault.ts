@@ -166,11 +166,15 @@ export function reencryptAllComplaints(
   getDb().exec("BEGIN");
   try {
     for (const row of rows) {
-      const item = JSON.parse(row.data) as Complaint;
-      const plain = unsealComplaint(item, oldKey);
-      const sealed = sealComplaint(plain, newKey);
-      update.run(JSON.stringify(sealed), row.id);
-      changed += 1;
+      try {
+        const item = JSON.parse(row.data) as Complaint;
+        const plain = unsealComplaint(item, oldKey);
+        const sealed = sealComplaint(plain, newKey);
+        update.run(JSON.stringify(sealed), row.id);
+        changed += 1;
+      } catch {
+        /* 복호화되지 않는 레코드는 건너뛴다. 목록·삭제는 그대로 동작한다. */
+      }
     }
     getDb().exec("COMMIT");
   } catch (err) {
@@ -185,6 +189,24 @@ export function reencryptAllComplaints(
  * - 미활성: salt·verifier 생성, 기존 평문 마이그레이션 후 활성화
  * - 활성: 비밀번호로 키 검증 후 메모리에 보관
  */
+/** 비밀번호가 맞으면 키만 돌려준다. 프로세스 잠금 상태는 바꾸지 않는다. */
+export function deriveVaultKey(password: string): Buffer {
+  if (!password) throw new Error("비밀번호가 필요합니다.");
+  if (!isVaultEnabled()) {
+    throw new Error("데이터 잠금 해제에 실패했습니다.");
+  }
+  const salt = getSetting(KEY_SALT);
+  const verifier = getSetting(KEY_VERIFIER);
+  if (!salt || !verifier) {
+    throw new Error("암호화 설정이 손상되었습니다.");
+  }
+  const dek = deriveKey(password, salt);
+  if (!verifyKey(dek, verifier)) {
+    throw new Error("데이터 잠금 해제에 실패했습니다.");
+  }
+  return dek;
+}
+
 export function unlockVaultWithPassword(password: string): {
   migrated: number;
   enabledNow: boolean;

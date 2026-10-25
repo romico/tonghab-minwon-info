@@ -12,7 +12,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
@@ -223,6 +223,48 @@ export const DEFAULT_UPDATE_FEED_URL =
   process.env.TM_DEFAULT_UPDATE_FEED_URL?.trim() ||
   "https://update.uany.net/tonghab-minwon-info/update.json";
 
+const FEED_HOSTS = new Set(["update.uany.net", "uany-update.pages.dev"]);
+const DOWNLOAD_HOSTS = new Set([
+  ...FEED_HOSTS,
+  "github.com",
+  "api.github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+  "tonghab-update-download.romico-ccb.workers.dev",
+]);
+
+function assertHttpsHost(raw: string, hosts: Set<string>, label: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`${label} URL이 올바르지 않습니다.`);
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error(`${label} URL은 https 만 허용됩니다.`);
+  }
+  if (!hosts.has(url.hostname)) {
+    throw new Error(`허용되지 않은 ${label} 주소입니다.`);
+  }
+  return url;
+}
+
+export function assertAllowedFeedUrl(raw: string): URL {
+  return assertHttpsHost(raw, FEED_HOSTS, "업데이트 피드");
+}
+
+function assertAllowedDownloadUrl(raw: string): URL {
+  return assertHttpsHost(raw, DOWNLOAD_HOSTS, "업데이트 패키지");
+}
+
+function maySendGithubToken(url: URL): boolean {
+  return (
+    url.protocol === "https:" &&
+    url.hostname === "api.github.com" &&
+    url.pathname.startsWith(`/repos/${GITHUB_REPO}/`)
+  );
+}
+
 function readPackageUpdateFeedUrl(): string | null {
   for (const path of packageJsonCandidates()) {
     try {
@@ -244,22 +286,42 @@ function readPackageUpdateFeedUrl(): string | null {
  * 업데이트 매니페스트 URL.
  * TM_UPDATE_FEED_URL → data/update-feed.url(선택 덮어쓰기) → package.json#updateFeedUrl → 기본값
  */
-export function resolveFeedUrl(): string | null {
-  const fromEnv = process.env.TM_UPDATE_FEED_URL?.trim();
-  if (fromEnv) return fromEnv;
+function readFeedFileUrl(): string | null {
   const filePath = join(DATA_DIR, "update-feed.url");
   try {
-    if (existsSync(filePath)) {
-      const text = readFileSync(filePath, "utf8")
+    if (!existsSync(filePath)) return null;
+    return (
+      readFileSync(filePath, "utf8")
         .split(/\r?\n/)
         .map((l) => l.trim())
-        .find((l) => l && !l.startsWith("#"));
-      if (text) return text;
-    }
+        .find((l) => l && !l.startsWith("#")) || null
+    );
   } catch {
-    /* fall through */
+    return null;
   }
-  return readPackageUpdateFeedUrl() || DEFAULT_UPDATE_FEED_URL;
+}
+
+function acceptedFeedUrl(raw: string | null | undefined): string | null {
+  const text = raw?.trim();
+  if (!text) return null;
+  try {
+    assertAllowedFeedUrl(text);
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveFeedUrl(): string | null {
+  const fromEnv = acceptedFeedUrl(process.env.TM_UPDATE_FEED_URL);
+  if (fromEnv) return fromEnv;
+  const fromFile = acceptedFeedUrl(readFeedFileUrl());
+  if (fromFile) return fromFile;
+  return (
+    acceptedFeedUrl(readPackageUpdateFeedUrl()) ||
+    acceptedFeedUrl(DEFAULT_UPDATE_FEED_URL) ||
+    "https://update.uany.net/tonghab-minwon-info/update.json"
+  );
 }
 
 const FEED_URL_FILE = () => join(DATA_DIR, "update-feed.url");
@@ -325,9 +387,7 @@ export function saveUpdateConfig(input: {
     if (!url) {
       if (existsSync(FEED_URL_FILE())) rmSync(FEED_URL_FILE(), { force: true });
     } else {
-      if (!/^https?:\/\//i.test(url) && !url.startsWith("file:")) {
-        throw new Error("피드 URL은 http(s):// 로 시작해야 합니다.");
-      }
+      assertAllowedFeedUrl(url);
       writeFileSync(FEED_URL_FILE(), `${url}\n`, "utf8");
     }
   }
@@ -576,13 +636,45 @@ export async function sha256File(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
+const FEED_BODY_LIMIT = 1_048_576;
+
+async function fetchAllowlisted(
+  startUrl: string,
+  headers: Record<string, string>,
+  scope: "feed" | "download",
+): Promise<Response> {
+  let current = startUrl;
+  for (let hop = 0; hop < 5; hop++) {
+    const url =
+      scope === "feed"
+        ? assertAllowedFeedUrl(current)
+        : assertAllowedDownloadUrl(current);
+    const nextHeaders = { ...headers };
+    if (!maySendGithubToken(url)) delete nextHeaders.Authorization;
+    const res = await fetch(url, { headers: nextHeaders, redirect: "manual" });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) throw new Error("리다이렉트 위치가 없습니다.");
+      current = new URL(loc, url).href;
+      continue;
+    }
+    return res;
+  }
+  throw new Error("리다이렉트가 너무 많습니다.");
+}
+
 async function fetchText(
   url: string,
   headers: Record<string, string>,
+  scope: "feed" | "download" = "feed",
 ): Promise<{ ok: true; text: string; contentType: string } | { ok: false; status: number }> {
-  const res = await fetch(url, { headers, redirect: "follow" });
+  const res = await fetchAllowlisted(url, headers, scope);
   if (!res.ok) return { ok: false, status: res.status };
-  const text = await res.text();
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength > FEED_BODY_LIMIT) {
+    throw new Error("업데이트 피드가 너무 큽니다.");
+  }
+  const text = new TextDecoder().decode(buf);
   const contentType = res.headers.get("content-type") ?? "";
   return { ok: true, text, contentType };
 }
@@ -597,12 +689,17 @@ function looksLikeIni(url: string, contentType: string, text: string): boolean {
 export async function loadManifestFromUrl(
   feedUrl: string,
   headers?: Record<string, string>,
+  scope: "feed" | "download" = "feed",
 ): Promise<UpdateManifest> {
-  const fetched = await fetchText(feedUrl, {
-    Accept: "application/json, text/plain, */*",
-    "User-Agent": `tonghab-minwon-info/${getCurrentVersion()}`,
-    ...(headers ?? {}),
-  });
+  const fetched = await fetchText(
+    feedUrl,
+    {
+      Accept: "application/json, text/plain, */*",
+      "User-Agent": `tonghab-minwon-info/${getCurrentVersion()}`,
+      ...(headers ?? {}),
+    },
+    scope,
+  );
   if (!fetched.ok) {
     throw new Error(`업데이트 피드 조회 실패 (${fetched.status})`);
   }
@@ -655,9 +752,11 @@ async function checkFromGithub(): Promise<UpdateCheckResult> {
   const base = emptyBase();
   const token = resolveGithubToken();
   const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-  const res = await fetch(url, {
-    headers: githubHeaders(token, "application/vnd.github+json"),
-  });
+  const res = await fetchAllowlisted(
+    url,
+    githubHeaders(token, "application/vnd.github+json"),
+    "download",
+  );
 
   if (res.status === 404) {
     return {
@@ -717,6 +816,7 @@ async function checkFromGithub(): Promise<UpdateCheckResult> {
       const manifest = await loadManifestFromUrl(
         manifestAsset.apiUrl,
         githubHeaders(token, "application/octet-stream"),
+        "download",
       );
       sha256 = manifest.sha256;
       if (manifest.size != null) size = manifest.size;
@@ -764,23 +864,12 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
 async function downloadFile(url: string, dest: string): Promise<void> {
   mkdirSync(dirname(dest), { recursive: true });
   const token = resolveGithubToken();
-  const isGithubApi =
-    url.includes("api.github.com/") && url.includes("/releases/assets/");
   const headers: Record<string, string> = {
     "User-Agent": `tonghab-minwon-info/${getCurrentVersion()}`,
+    Accept: "application/octet-stream",
   };
-  if (isGithubApi) {
-    headers.Accept = "application/octet-stream";
-    if (token) headers.Authorization = `Bearer ${token}`;
-  } else if (token && url.includes("github.com")) {
-    headers.Authorization = `Bearer ${token}`;
-    headers.Accept = "application/octet-stream";
-  }
-
-  const res = await fetch(url, {
-    headers,
-    redirect: "follow",
-  });
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetchAllowlisted(url, headers, "download");
   if (!res.ok || !res.body) {
     throw new Error(`다운로드 실패 (${res.status})`);
   }
@@ -887,16 +976,31 @@ function findPackageRoot(extractRoot: string): string {
   throw new Error("업데이트 ZIP에서 server.cjs를 찾지 못했습니다.");
 }
 
-function writeApplyScriptWindows(packageRoot: string): void {
+function assertPackageRoot(packageRoot: string): string {
+  const extractRoot = resolve(EXTRACT_DIR);
+  const target = resolve(packageRoot);
+  const rel = relative(extractRoot, target);
+  if (rel.startsWith("..") || rel.split(sep).includes("..")) {
+    throw new Error("패키지 경로가 올바르지 않습니다.");
+  }
+  if (/[\r\n\0"%]/.test(target)) {
+    throw new Error("패키지 경로가 올바르지 않습니다.");
+  }
+  return target;
+}
+
+function writeApplyScriptWindows(): void {
   const bat = [
     "@echo off",
     "setlocal",
-    `cd /d "${ROOT}"`,
+    'if "%TM_UPDATE_ROOT%"=="" exit /b 1',
+    'if "%TM_UPDATE_SRC%"=="" exit /b 1',
+    'cd /d "%TM_UPDATE_ROOT%"',
     "echo.",
     "echo [update] Waiting for server to exit...",
     "timeout /t 3 /nobreak >nul",
     "echo [update] Applying files (data folder is kept)...",
-    `robocopy "${packageRoot}" "%cd%" /E /NFL /NDL /NJH /NJS /nc /ns /np /XD data updates .cache`,
+    'robocopy "%TM_UPDATE_SRC%" "%TM_UPDATE_ROOT%" /E /NFL /NDL /NJH /NJS /nc /ns /np /XD data updates .cache',
     "set RC=%ERRORLEVEL%",
     "if %RC% GEQ 8 (",
     "  echo [update] Copy failed. ErrorLevel=%RC%",
@@ -912,15 +1016,17 @@ function writeApplyScriptWindows(packageRoot: string): void {
   writeFileSync(APPLY_BAT, bat, "utf8");
 }
 
-function writeApplyScriptUnix(packageRoot: string): void {
+function writeApplyScriptUnix(): void {
   const sh = `#!/usr/bin/env bash
 set -euo pipefail
-cd "${ROOT}"
+: "\${TM_UPDATE_ROOT:?}"
+: "\${TM_UPDATE_SRC:?}"
+cd "\${TM_UPDATE_ROOT}"
 echo
 echo "[update] Waiting for server to exit..."
 sleep 2
 echo "[update] Applying files (data folder is kept)..."
-SRC="${packageRoot}"
+SRC="\${TM_UPDATE_SRC}"
 # rsync 우선, 없으면 find+cp
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --delete \\
@@ -945,13 +1051,20 @@ exit 0
   chmodSync(APPLY_SH, 0o755);
 }
 
-function launchApplyScript(): void {
+function launchApplyScript(packageRoot: string): void {
+  const src = assertPackageRoot(packageRoot);
+  const env = {
+    ...process.env,
+    TM_UPDATE_ROOT: ROOT,
+    TM_UPDATE_SRC: src,
+  };
   if (process.platform === "win32") {
     const child = spawn("cmd.exe", ["/c", "start", "", "/min", APPLY_BAT], {
       cwd: ROOT,
       detached: true,
       stdio: "ignore",
       windowsHide: true,
+      env,
     });
     child.unref();
     return;
@@ -960,6 +1073,7 @@ function launchApplyScript(): void {
     cwd: ROOT,
     detached: true,
     stdio: "ignore",
+    env,
   });
   child.unref();
 }
@@ -968,11 +1082,7 @@ function launchApplyScript(): void {
  * 최신 포터블 ZIP을 받아 체크섬 검증 후 적용 스크립트를 띄우고 프로세스를 종료한다.
  * data/ 는 유지된다.
  */
-export async function applyUpdate(options?: {
-  downloadUrl?: string | null;
-  targetVersion?: string | null;
-  sha256?: string | null;
-}): Promise<UpdateApplyResult> {
+export async function applyUpdate(): Promise<UpdateApplyResult> {
   if (!canApplyUpdate()) {
     throw new Error(
       "자동 업데이트는 포터블 배포(Windows / Linux / macOS)에서만 사용할 수 있습니다. 수동으로 ZIP을 받아 data 폴더를 유지한 채 교체하세요.",
@@ -980,24 +1090,24 @@ export async function applyUpdate(options?: {
   }
 
   const check = await checkForUpdate();
-  if (check.error && !options?.downloadUrl) {
-    throw new Error(check.error);
-  }
-  const downloadUrl = options?.downloadUrl || check.downloadUrl;
-  const toVersion =
-    options?.targetVersion || check.latestVersion || "(unknown)";
-  const expectedSha256 =
-    normalizeSha256(options?.sha256) || check.sha256;
+  if (check.error) throw new Error(check.error);
+  const downloadUrl = check.downloadUrl;
+  const toVersion = check.latestVersion || "(unknown)";
+  const expectedSha256 = check.sha256;
   if (!downloadUrl) {
     throw new Error(
       "다운로드 URL이 없습니다. update.json 피드 또는 GitHub Release를 확인하세요.",
     );
   }
-  if (!check.updateAvailable && !options?.downloadUrl) {
+  assertAllowedDownloadUrl(downloadUrl);
+  if (!check.updateAvailable) {
     throw new Error("이미 최신 버전입니다.");
   }
+  if (!expectedSha256) {
+    throw new Error("체크섬(sha256) 없이 업데이트를 적용할 수 없습니다.");
+  }
 
-  const requireChecksum = check.source === "feed" || Boolean(expectedSha256);
+  const requireChecksum = true;
 
   mkdirSync(UPDATES_DIR, { recursive: true });
   if (existsSync(EXTRACT_DIR)) {
@@ -1021,11 +1131,11 @@ export async function applyUpdate(options?: {
   }
 
   if (process.platform === "win32") {
-    writeApplyScriptWindows(packageRoot);
+    writeApplyScriptWindows();
   } else {
-    writeApplyScriptUnix(packageRoot);
+    writeApplyScriptUnix();
   }
-  launchApplyScript();
+  launchApplyScript(packageRoot);
 
   const fromVersion = getCurrentVersion();
   setTimeout(() => {

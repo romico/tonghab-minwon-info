@@ -10,6 +10,7 @@ import {
   type ProcessStatus,
 } from "@/schema";
 import { buildImportKeyFromCard } from "@/import/importMatch";
+import { bytesToDataUrl, stripImageMetadata } from "@/import/stripImageMetadata";
 
 export interface HwpxImportDraft extends ComplaintInput {
   sourceFileName: string;
@@ -254,12 +255,9 @@ async function extractAllImages(
           maxBytes: 60_000,
         });
       } catch {
-        let binary = "";
-        const chunk = 0x8000;
-        for (let j = 0; j < buf.length; j += chunk) {
-          binary += String.fromCharCode(...buf.subarray(j, j + chunk));
-        }
-        url = `data:${mime};base64,${btoa(binary)}`;
+        const stripped = stripImageMetadata(buf);
+        if (!stripped) continue;
+        url = bytesToDataUrl(stripped.bytes, stripped.mime);
       }
     }
 

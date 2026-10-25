@@ -8,6 +8,13 @@ import {
 } from "node:crypto";
 
 export const ENC_PREFIX = "enc:v1:";
+
+export class RejectedCiphertextError extends Error {
+  constructor() {
+    super("이미 암호화된 값은 저장할 수 없습니다.");
+    this.name = "RejectedCiphertextError";
+  }
+}
 const SCRYPT_OPTS = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 
 /** 비밀번호 + salt → AES-256 키 */
@@ -36,7 +43,7 @@ export function isEncrypted(value: string | null | undefined): boolean {
 
 /** 평문 → enc:v1:<base64url(iv||tag||ciphertext)> */
 export function encryptString(plain: string, key: Buffer): string {
-  if (plain.startsWith(ENC_PREFIX)) return plain;
+  if (plain.startsWith(ENC_PREFIX)) throw new RejectedCiphertextError();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);

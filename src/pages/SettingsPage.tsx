@@ -208,11 +208,7 @@ export function SettingsPage() {
     setUpdateErr(null);
     setApplyingUpdate(true);
     try {
-      const result = await apiApplyUpdate({
-        downloadUrl: updateInfo.downloadUrl ?? undefined,
-        targetVersion: updateInfo.latestVersion ?? undefined,
-        sha256: updateInfo.sha256 ?? undefined,
-      });
+      const result = await apiApplyUpdate();
       setUpdateConfirmOpen(false);
       setUpdateMsg(result.message);
       const started = Date.now();

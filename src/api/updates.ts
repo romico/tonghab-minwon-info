@@ -65,13 +65,9 @@ export async function apiSaveUpdateConfig(input: {
   });
 }
 
-export async function apiApplyUpdate(input?: {
-  downloadUrl?: string;
-  targetVersion?: string;
-  sha256?: string;
-}): Promise<UpdateApplyResult> {
+export async function apiApplyUpdate(): Promise<UpdateApplyResult> {
   return apiRequest<UpdateApplyResult>("/api/updates/apply", {
     method: "POST",
-    body: JSON.stringify(input ?? {}),
+    body: "{}",
   });
 }

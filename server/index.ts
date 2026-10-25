@@ -1,6 +1,7 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import express from "express";
+import { RejectedCiphertextError } from "./field-crypto.ts";
 import { initAuditTable, listAuditLogs, writeAudit, clearAuditLogs } from "./audit.ts";
 import {
   beginTotpSetup,
@@ -141,11 +142,12 @@ function clientMeta(req: express.Request): {
   ip: string | null;
   userAgent: string | null;
 } {
-  const xf = req.headers["x-forwarded-for"];
-  const ip =
-    (typeof xf === "string" ? xf.split(",")[0]?.trim() : undefined) ||
-    req.socket.remoteAddress ||
-    null;
+  // 직접 접속이 기본. 리버스 프록시 뒤에서만 TM_TRUST_PROXY=1 일 때 전달 헤더를 쓴다.
+  const trustProxy = process.env.TM_TRUST_PROXY === "1";
+  const xf = trustProxy ? req.headers["x-forwarded-for"] : undefined;
+  const forwarded =
+    typeof xf === "string" ? xf.split(",")[0]?.trim() : undefined;
+  const ip = forwarded || req.socket.remoteAddress || null;
   const userAgent =
     typeof req.headers["user-agent"] === "string"
       ? req.headers["user-agent"]
@@ -584,16 +586,7 @@ app.put("/api/updates/config", requireAuth, (req, res) => {
 
 app.post("/api/updates/apply", requireAuth, async (req, res) => {
   try {
-    const body = (req.body ?? {}) as {
-      downloadUrl?: string;
-      targetVersion?: string;
-      sha256?: string;
-    };
-    const result = await applyUpdate({
-      downloadUrl: body.downloadUrl,
-      targetVersion: body.targetVersion,
-      sha256: body.sha256,
-    });
+    const result = await applyUpdate();
     auditFromReq(req, {
       userId: req.session!.user.id,
       username: req.session!.user.username,
@@ -819,6 +812,7 @@ app.post("/api/auth/totp/confirm", requireAuth, (req, res) => {
   }
   try {
     const result = confirmTotpSetup(req.session!.user.id, code);
+    revokeOtherSessions(req.session!.user.id, req.session!.token);
     auditFromReq(req, {
       userId: req.session!.user.id,
       username: req.session!.user.username,
@@ -844,6 +838,7 @@ app.post("/api/auth/totp/disable", requireAuth, (req, res) => {
   }
   try {
     disableTotp(req.session!.user.id, password, code);
+    revokeOtherSessions(req.session!.user.id, req.session!.token);
     auditFromReq(req, {
       userId: req.session!.user.id,
       username: req.session!.user.username,
@@ -1202,13 +1197,24 @@ app.post("/api/complaints/reset-seed", requireAuth, (req, res) => {
 
 app.delete("/api/complaints/:id", requireAuth, (req, res) => {
   const id = String(req.params.id);
-  const existing = getComplaint(id);
-  if (!existing) {
+  if (!complaintExists(id)) {
     res.status(404).json({ error: "민원을 찾을 수 없습니다." });
     return;
   }
+  const existing = getComplaint(id);
   deleteComplaint(id);
-  auditComplaintMutation(req, "COMPLAINT_DELETE", existing);
+  if (existing) {
+    auditComplaintMutation(req, "COMPLAINT_DELETE", existing);
+  } else {
+    auditFromReq(req, {
+      userId: req.session!.user.id,
+      username: req.session!.user.username,
+      action: "COMPLAINT_DELETE",
+      resourceType: "complaint",
+      resourceId: id,
+      summary: `민원 삭제: ${id}`,
+    });
+  }
   res.json({ ok: true, id });
 });
 
@@ -1232,6 +1238,10 @@ app.use(
   ) => {
     if (err instanceof VaultLockedError) {
       res.status(401).json({ error: err.message });
+      return;
+    }
+    if (err instanceof RejectedCiphertextError) {
+      res.status(400).json({ error: err.message });
       return;
     }
     const bodyErr = err as { type?: string; status?: number; message?: string };
