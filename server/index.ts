@@ -605,6 +605,12 @@ app.post("/api/updates/apply", requireAuth, async (req, res) => {
       },
     });
     res.json(result);
+    // 본문이 나간 뒤에 종료해야 브라우저가 응답을 받는다.
+    res.once("finish", () => {
+      setTimeout(() => {
+        process.exit(0);
+      }, 300);
+    });
   } catch (err) {
     res.status(400).json({
       error: err instanceof Error ? err.message : "업데이트 적용 실패",

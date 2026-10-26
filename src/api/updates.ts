@@ -71,3 +71,32 @@ export async function apiApplyUpdate(): Promise<UpdateApplyResult> {
     body: "{}",
   });
 }
+
+export type RestartWait = "restarted" | "still-up" | "down";
+
+/** 적용 응답이 끊겨도, 서버가 내려갔다가 올라오면 재시작으로 본다. */
+export async function waitUntilServerRestarts(
+  previousVersion: string,
+  timeoutMs = 120_000,
+): Promise<RestartWait> {
+  const started = Date.now();
+  let sawDown = false;
+  let upStreak = 0;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch("/api/health", { cache: "no-store" });
+      if (!res.ok) throw new Error("health");
+      const data = (await res.json()) as { version?: string };
+      if (sawDown || (data.version != null && data.version !== previousVersion)) {
+        return "restarted";
+      }
+      upStreak += 1;
+      if (upStreak >= 8 && Date.now() - started > 10_000) return "still-up";
+    } catch {
+      sawDown = true;
+      upStreak = 0;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return sawDown ? "down" : "still-up";
+}

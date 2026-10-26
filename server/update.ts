@@ -992,13 +992,23 @@ function assertPackageRoot(packageRoot: string): string {
 function writeApplyScriptWindows(): void {
   const bat = [
     "@echo off",
-    "setlocal",
+    "setlocal EnableExtensions",
     'if "%TM_UPDATE_ROOT%"=="" exit /b 1',
     'if "%TM_UPDATE_SRC%"=="" exit /b 1',
     'cd /d "%TM_UPDATE_ROOT%"',
     "echo.",
     "echo [update] Waiting for server to exit...",
-    "timeout /t 3 /nobreak >nul",
+    "set /a WAIT=0",
+    ":wait_exit",
+    'if "%TM_UPDATE_PID%"=="" goto wait_done',
+    'tasklist /FI "PID eq %TM_UPDATE_PID%" 2>nul | findstr /R /C:" %TM_UPDATE_PID% " >nul',
+    "if errorlevel 1 goto wait_done",
+    "set /a WAIT+=1",
+    "if %WAIT% GEQ 90 goto wait_done",
+    "timeout /t 1 /nobreak >nul",
+    "goto wait_exit",
+    ":wait_done",
+    "timeout /t 1 /nobreak >nul",
     "echo [update] Applying files (data folder is kept)...",
     'robocopy "%TM_UPDATE_SRC%" "%TM_UPDATE_ROOT%" /E /NFL /NDL /NJH /NJS /nc /ns /np /XD data updates .cache',
     "set RC=%ERRORLEVEL%",
@@ -1007,8 +1017,19 @@ function writeApplyScriptWindows(): void {
     "  pause",
     "  exit /b %RC%",
     ")",
-    "echo [update] Restarting...",
-    'start "" "%cd%\\my-minwon-server.bat"',
+    'if not exist "%TM_UPDATE_ROOT%\\runtime\\node.exe" (',
+    "  echo [update] runtime\\node.exe not found.",
+    "  pause",
+    "  exit /b 1",
+    ")",
+    "echo [update] Starting server...",
+    "set NODE_ENV=production",
+    "set TM_PORTABLE=1",
+    "if not defined PORT set PORT=9000",
+    "if not defined HOST set HOST=127.0.0.1",
+    'del /f /q "%TM_UPDATE_ROOT%\\data\\server.pid" >nul 2>&1',
+    'del /f /q "%TM_UPDATE_ROOT%\\data\\server.port" >nul 2>&1',
+    'start "Tonghab Minwon Info" cmd.exe /k cd /d "%TM_UPDATE_ROOT%" ^& "%TM_UPDATE_ROOT%\\runtime\\node.exe" --experimental-sqlite server.cjs',
     "endlocal",
     "exit /b 0",
     "",
@@ -1024,7 +1045,13 @@ set -euo pipefail
 cd "\${TM_UPDATE_ROOT}"
 echo
 echo "[update] Waiting for server to exit..."
-sleep 2
+if [[ -n "\${TM_UPDATE_PID:-}" ]]; then
+  for _ in $(seq 1 90); do
+    kill -0 "\${TM_UPDATE_PID}" 2>/dev/null || break
+    sleep 1
+  done
+fi
+sleep 1
 echo "[update] Applying files (data folder is kept)..."
 SRC="\${TM_UPDATE_SRC}"
 # rsync 우선, 없으면 find+cp
@@ -1043,8 +1070,19 @@ else
   done < <(find "$SRC" -type f -print0)
 fi
 chmod +x runtime/node my-minwon-server.sh 2>/dev/null || true
-echo "[update] Restarting..."
-nohup ./my-minwon-server.sh >/dev/null 2>&1 &
+if [[ ! -x ./runtime/node ]]; then
+  echo "[update] runtime/node not found."
+  exit 1
+fi
+echo "[update] Starting server..."
+mkdir -p data
+export NODE_ENV=production
+export TM_PORTABLE=1
+export PORT="\${PORT:-9000}"
+export HOST="\${HOST:-127.0.0.1}"
+rm -f data/server.pid data/server.port
+nohup ./runtime/node --experimental-sqlite server.cjs >>data/server.log 2>&1 &
+echo $! > data/server.pid
 exit 0
 `;
   writeFileSync(APPLY_SH, sh, "utf8");
@@ -1057,6 +1095,7 @@ function launchApplyScript(packageRoot: string): void {
     ...process.env,
     TM_UPDATE_ROOT: ROOT,
     TM_UPDATE_SRC: src,
+    TM_UPDATE_PID: String(process.pid),
   };
   if (process.platform === "win32") {
     const child = spawn("cmd.exe", ["/c", "start", "", "/min", APPLY_BAT], {
@@ -1078,11 +1117,29 @@ function launchApplyScript(packageRoot: string): void {
   child.unref();
 }
 
+let updateApplyStarted = false;
+
 /**
- * 최신 포터블 ZIP을 받아 체크섬 검증 후 적용 스크립트를 띄우고 프로세스를 종료한다.
+ * 최신 포터블 ZIP을 받아 체크섬 검증 후 적용 스크립트를 띄운다.
+ * 응답을 보낸 뒤 프로세스를 종료하는 일은 호출 측이 한다.
  * data/ 는 유지된다.
  */
 export async function applyUpdate(): Promise<UpdateApplyResult> {
+  if (updateApplyStarted) {
+    throw new Error(
+      "이미 업데이트를 적용하는 중입니다. 서버가 다시 시작될 때까지 기다리세요.",
+    );
+  }
+  updateApplyStarted = true;
+  try {
+    return await applyUpdateBody();
+  } catch (err) {
+    updateApplyStarted = false;
+    throw err;
+  }
+}
+
+async function applyUpdateBody(): Promise<UpdateApplyResult> {
   if (!canApplyUpdate()) {
     throw new Error(
       "자동 업데이트는 포터블 배포(Windows / Linux / macOS)에서만 사용할 수 있습니다. 수동으로 ZIP을 받아 data 폴더를 유지한 채 교체하세요.",
@@ -1138,9 +1195,6 @@ export async function applyUpdate(): Promise<UpdateApplyResult> {
   launchApplyScript(packageRoot);
 
   const fromVersion = getCurrentVersion();
-  setTimeout(() => {
-    process.exit(0);
-  }, 800);
 
   return {
     ok: true,
@@ -1148,6 +1202,6 @@ export async function applyUpdate(): Promise<UpdateApplyResult> {
     toVersion: normalizeVersion(toVersion),
     sha256: actualSha256,
     message:
-      "업데이트를 적용하고 서버를 다시 시작합니다. 잠시 후 화면이 새로고침됩니다.",
+      "파일을 적용하고 서버를 다시 시작합니다. 잠시 후 화면이 새로고침됩니다.",
   };
 }

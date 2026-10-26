@@ -19,10 +19,12 @@ import {
   type ArchiveInfo,
   type DbStorageInfo,
 } from "@/api/storage";
+import { ApiError } from "@/api/client";
 import {
   apiApplyUpdate,
   apiCheckUpdate,
   apiGetVersion,
+  waitUntilServerRestarts,
   type UpdateCheckResult,
 } from "@/api/updates";
 import { LEGAL_NAV, OPERATOR, SITE_URL } from "@/legal/documents";
@@ -204,31 +206,41 @@ export function SettingsPage() {
 
   async function onApplyUpdate() {
     if (!updateInfo?.updateAvailable) return;
+    const previousVersion = updateInfo.currentVersion;
     setUpdateMsg(null);
     setUpdateErr(null);
     setApplyingUpdate(true);
+    setUpdateMsg("파일을 받은 뒤 서버를 다시 시작합니다. 다시 누르지 마세요.");
+    let dropped = false;
     try {
       const result = await apiApplyUpdate();
-      setUpdateConfirmOpen(false);
       setUpdateMsg(result.message);
-      const started = Date.now();
-      const poll = window.setInterval(() => {
-        void fetch("/api/health")
-          .then((r) => {
-            if (r.ok && Date.now() - started > 2500) {
-              window.clearInterval(poll);
-              window.location.reload();
-            }
-          })
-          .catch(() => {
-            /* still restarting */
-          });
-      }, 1500);
-      window.setTimeout(() => window.clearInterval(poll), 120_000);
     } catch (err) {
-      setUpdateErr(err instanceof Error ? err.message : "업데이트 적용 실패");
-      setApplyingUpdate(false);
+      if (err instanceof ApiError) {
+        setUpdateErr(err.message);
+        setUpdateMsg(null);
+        setApplyingUpdate(false);
+        setUpdateConfirmOpen(false);
+        return;
+      }
+      dropped = true;
+      setUpdateMsg("연결이 끊겼습니다. 서버가 다시 시작되는지 확인하는 중…");
     }
+    const outcome = await waitUntilServerRestarts(previousVersion);
+    if (outcome === "restarted") {
+      window.location.reload();
+      return;
+    }
+    setApplyingUpdate(false);
+    setUpdateConfirmOpen(false);
+    setUpdateMsg(null);
+    setUpdateErr(
+      outcome === "down"
+        ? "서버가 다시 시작되지 않았습니다. 실행 메뉴에서 서버를 시작해 주세요."
+        : dropped
+          ? "업데이트가 적용되지 않았습니다. 서버는 계속 실행 중입니다."
+          : "서버가 다시 시작되지 않았습니다. 잠시 후 다시 확인해 주세요.",
+    );
   }
 
   async function onSaveTtl(e: FormEvent) {
@@ -1778,6 +1790,12 @@ export function SettingsPage() {
               업데이트합니다. 파일이 올바른지 검증한 뒤 서버가 잠시 다시
               시작되며, 민원 데이터는 유지됩니다.
             </p>
+            {applyingUpdate && (
+              <p>
+                {updateMsg ??
+                  "파일을 받은 뒤 서버를 다시 시작합니다. 이 창이 잠시 응답하지 않아도 다시 누르지 마세요."}
+              </p>
+            )}
             <div className="settings-confirm-actions">
               <button
                 type="button"
