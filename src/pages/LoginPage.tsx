@@ -4,7 +4,7 @@ import { LegalNavLinks } from "@/components/LegalDocBody";
 import { useAuth } from "@/store/AuthStore";
 
 export function LoginPage() {
-  const { user, authLoading, login, completeTotpLogin } = useAuth();
+  const { user, authLoading, authError, login, completeTotpLogin } = useAuth();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
@@ -81,7 +81,9 @@ export function LoginPage() {
               required
             />
           </label>
-          {error && <p className="login-error">{error}</p>}
+          {(error || authError) && (
+            <p className="login-error">{error || authError}</p>
+          )}
           <button
             type="submit"
             className="btn btn-primary"

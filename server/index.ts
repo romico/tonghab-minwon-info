@@ -179,6 +179,10 @@ function clearSessionCookie(res: express.Response): void {
   );
 }
 
+function unauthenticated(res: express.Response, error = "로그인이 필요합니다."): void {
+  res.status(401).json({ error, code: "UNAUTHENTICATED" });
+}
+
 function requireAuth(
   req: express.Request,
   res: express.Response,
@@ -186,7 +190,7 @@ function requireAuth(
 ): void {
   const session = getSession(readToken(req));
   if (!session) {
-    res.status(401).json({ error: "로그인이 필요합니다." });
+    unauthenticated(res);
     return;
   }
   req.session = session;
@@ -213,7 +217,7 @@ function requireAuthLargeJson(
   const session = getSession(readToken(req));
   if (!session) {
     drainRequest(req);
-    res.status(401).json({ error: "로그인이 필요합니다." });
+    unauthenticated(res);
     return;
   }
   if (session.user.mustChangePassword) {
@@ -766,7 +770,7 @@ app.post("/api/auth/logout", (req, res) => {
 app.get("/api/auth/me", (req, res) => {
   const session = getSession(readToken(req));
   if (!session) {
-    res.status(401).json({ error: "로그인이 필요합니다." });
+    unauthenticated(res);
     return;
   }
   res.json({
@@ -865,9 +869,10 @@ app.post("/api/auth/refresh", (req, res) => {
     });
   } catch (err) {
     clearSessionCookie(res);
-    res.status(401).json({
-      error: err instanceof Error ? err.message : "세션 갱신 실패",
-    });
+    unauthenticated(
+      res,
+      err instanceof Error ? err.message : "세션 갱신 실패",
+    );
   }
 });
 
@@ -1237,7 +1242,7 @@ app.use(
     _next: express.NextFunction,
   ) => {
     if (err instanceof VaultLockedError) {
-      res.status(401).json({ error: err.message });
+      unauthenticated(res, err.message);
       return;
     }
     if (err instanceof RejectedCiphertextError) {

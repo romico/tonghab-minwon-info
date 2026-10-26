@@ -19,7 +19,7 @@ import {
   type LoginTotpChallenge,
   type VaultStatus,
 } from "@/api/auth";
-import { ApiError } from "@/api/client";
+import { ApiError, setUnauthorizedHandler } from "@/api/client";
 
 interface AuthValue {
   user: AuthUser | null;
@@ -52,6 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authWarning, setAuthWarning] = useState<string | null>(null);
   const refreshTimer = useRef<number | null>(null);
+  const refreshPromise = useRef<Promise<void> | null>(null);
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
 
   const applySession = useCallback((session: AuthSession) => {
     setUser(session.user);
@@ -72,10 +75,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthWarning(null);
   }, []);
 
+  const expireSession = useCallback(() => {
+    if (!userRef.current) return;
+    setAuthError("세션이 만료되었습니다. 다시 로그인해 주세요.");
+    clearSession();
+  }, [clearSession]);
+
   const refresh = useCallback(async () => {
-    const session = await apiRefreshSession();
-    applySession(session);
+    if (refreshPromise.current) return refreshPromise.current;
+    const job = (async () => {
+      const session = await apiRefreshSession();
+      applySession(session);
+    })().finally(() => {
+      refreshPromise.current = null;
+    });
+    refreshPromise.current = job;
+    return job;
   }, [applySession]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(expireSession);
+    return () => setUnauthorizedHandler(null);
+  }, [expireSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,8 +133,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const ms = new Date(expiresAt).getTime() - Date.now() - 60_000;
     const delay = Math.max(5_000, ms);
     refreshTimer.current = window.setTimeout(() => {
-      void refresh().catch(() => {
-        clearSession();
+      void refresh().catch((err) => {
+        if (err instanceof ApiError && err.status === 401) expireSession();
+        else clearSession();
       });
     }, delay);
 
@@ -122,7 +144,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.clearTimeout(refreshTimer.current);
       }
     };
-  }, [user, expiresAt, refresh, clearSession]);
+  }, [user, expiresAt, refresh, clearSession, expireSession]);
+
+  useEffect(() => {
+    if (!user || !expiresAt) return;
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      if (document.visibilityState === "hidden") return;
+      if (new Date(expiresAt).getTime() > Date.now()) return;
+      void refresh().catch((err) => {
+        if (stopped) return;
+        if (err instanceof ApiError && err.status === 401) expireSession();
+        else clearSession();
+      });
+    };
+    tick();
+    const id = window.setInterval(tick, 15_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [user, expiresAt, refresh, clearSession, expireSession]);
 
   useEffect(() => {
     if (!user || !expiresAt || !ttlMinutes) return;
@@ -130,8 +180,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const onActivity = () => {
       const remainMs = new Date(expiresAt).getTime() - Date.now();
       const half = (ttlMinutes * 60_000) / 2;
-      if (remainMs > 0 && remainMs < half) {
-        void refresh().catch(() => clearSession());
+      if (remainMs < half) {
+        void refresh().catch((err) => {
+          if (err instanceof ApiError && err.status === 401) expireSession();
+          else clearSession();
+        });
       }
     };
 
@@ -141,7 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("click", onActivity);
       window.removeEventListener("keydown", onActivity);
     };
-  }, [user, expiresAt, ttlMinutes, refresh, clearSession]);
+  }, [user, expiresAt, ttlMinutes, refresh, clearSession, expireSession]);
 
   const login = useCallback(
     async (username: string, password: string) => {

@@ -89,10 +89,21 @@ export default {
     const tagRaw = (url.searchParams.get("tag") || url.searchParams.get("v") || "")
       .trim()
       .replace(/^v/i, "");
+    const assetPrefix = resolvePrefix(url.searchParams.get("platform"));
+
+    // 공개 릴리스는 파일명이 정해져 있다. GitHub API는 워커 출구 IP에서 403이 잦다.
+    if (!privateMode && tagRaw) {
+      if (!/^[0-9A-Za-z._-]+$/.test(tagRaw)) {
+        return Response.json({ error: "태그 형식이 올바르지 않습니다." }, { status: 400 });
+      }
+      const fileName = `${assetPrefix}${tagRaw}.zip`;
+      const publicUrl = `https://github.com/${repo}/releases/download/v${tagRaw}/${fileName}`;
+      return Response.redirect(publicUrl, 302);
+    }
+
     const releasePath = tagRaw
       ? `releases/tags/v${tagRaw}`
       : "releases/latest";
-    const assetPrefix = resolvePrefix(url.searchParams.get("platform"));
 
     const releaseRes = await fetch(
       `https://api.github.com/repos/${repo}/${releasePath}`,
