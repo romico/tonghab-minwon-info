@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type MouseEvent,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -434,12 +435,15 @@ export function DashboardPage() {
     summary,
     daily,
     refreshComplaints,
+    startImportJob,
     storeLoading,
     periodFrom,
     periodTo,
   } = useComplaintStore();
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const deptName = useMemo(
     () => Object.fromEntries(DEPARTMENTS.map((d) => [d.id, d.name])),
@@ -594,6 +598,55 @@ export function DashboardPage() {
     }
   }
 
+  async function onImportExcel(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const proceed = window.confirm(
+      "관리대장 시트를 읽어 민원을 등록합니다. 접수일·내용이 같은 건은 갱신되고, 없으면 새로 추가됩니다.",
+    );
+    if (!proceed) return;
+
+    setImporting(true);
+    try {
+      const { apiListComplaints } = await import("@/api/complaints");
+      const { keepExistingPhotos, parseLedgerExcel } = await import(
+        "@/import/ledgerExcelImport"
+      );
+      const parsed = await parseLedgerExcel(await file.arrayBuffer());
+      if (parsed.items.length === 0) {
+        window.alert(
+          parsed.errors[0] ?? "가져올 관리대장 행이 없습니다.",
+        );
+        return;
+      }
+      if (parsed.errors.length > 0) {
+        const preview = parsed.errors.slice(0, 8).join("\n");
+        const more =
+          parsed.errors.length > 8
+            ? `\n외 ${parsed.errors.length - 8}건`
+            : "";
+        const skip = window.confirm(
+          `일부 행은 건너뜁니다.\n${preview}${more}\n\n나머지 ${parsed.items.length}건을 등록할까요?`,
+        );
+        if (!skip) return;
+      }
+      const existing = await apiListComplaints({ includeMedia: true });
+      const items = keepExistingPhotos(existing, parsed.items);
+      const started = startImportJob(items);
+      if (!started) {
+        window.alert("다른 가져오기가 진행 중입니다.");
+      }
+    } catch (err) {
+      console.error(err);
+      window.alert(
+        err instanceof Error ? err.message : "엑셀 가져오기에 실패했습니다.",
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="dash-page">
       <div className="page-header">
@@ -605,10 +658,26 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="toolbar">
+          <input
+            ref={excelInputRef}
+            className="sr-only"
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            aria-label="통합 엑셀 파일"
+            onChange={(event) => void onImportExcel(event)}
+          />
           <button
             type="button"
             className="btn"
-            disabled={exporting || storeLoading}
+            disabled={importing || exporting || storeLoading}
+            onClick={() => excelInputRef.current?.click()}
+          >
+            {importing ? "읽는 중…" : "통합 엑셀 가져오기"}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={exporting || importing || storeLoading}
             onClick={() => void onExportExcel()}
           >
             {exporting ? "내보내는 중…" : "통합 엑셀 다운로드"}
