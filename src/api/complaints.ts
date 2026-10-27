@@ -48,6 +48,26 @@ export async function apiUpsertComplaint(
   return data.complaint;
 }
 
+export async function apiPatchComplaintStatus(
+  id: string,
+  input: {
+    processStatus?: Complaint["processStatus"];
+    completedOrDueAt?: string | null;
+    pendingReason?: string | null;
+    remark?: string | null;
+    photos?: Complaint["photos"];
+  },
+): Promise<Complaint> {
+  const data = await apiRequest<{ complaint: Complaint }>(
+    `/api/complaints/${encodeURIComponent(id)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+  return data.complaint;
+}
+
 export async function apiAddComplaints(
   inputs: ComplaintInput[],
 ): Promise<Complaint[]> {
@@ -67,6 +87,15 @@ export async function apiAddComplaints(
 export async function apiDeleteComplaint(id: string): Promise<void> {
   await apiRequest(`/api/complaints/${encodeURIComponent(id)}`, {
     method: "DELETE",
+  });
+}
+
+export async function apiBatchDeleteComplaints(
+  ids: string[],
+): Promise<{ deletedIds: string[]; count: number }> {
+  return apiRequest("/api/complaints/batch-delete", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
   });
 }
 

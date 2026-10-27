@@ -270,6 +270,7 @@ export async function parseLedgerExcel(
       pendingReason: pendingReason || null,
       departmentId,
       assigneeName: assignee || null,
+      assigneeUserId: null,
       remark: remark || null,
       importKey: null,
       ...synced,

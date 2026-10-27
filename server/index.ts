@@ -8,21 +8,41 @@ import {
   changePassword,
   completeTotpLogin,
   confirmTotpSetup,
+  createUser,
   disableTotp,
   getSession,
   getSettings,
   getTotpStatus,
   assertTotpIfEnabled,
   initAuthTables,
+  listUsers,
   login,
   logout,
   MIN_SESSION_TTL_MINUTES,
   refreshSession,
+  resetUserPassword,
   revokeOtherSessions,
   updateSettings,
+  updateUser,
   verifyUserPassword,
   type SessionInfo,
 } from "./auth.ts";
+import {
+  hasAnyPermission,
+  hasPermission,
+  ALL_PERMISSIONS,
+  PERMISSION_LABELS,
+  type Permission,
+} from "./permissions.ts";
+import {
+  countUnreadNotifications,
+  createNotification,
+  deleteAllNotifications,
+  deleteNotification,
+  initNotificationsTable,
+  listNotifications,
+} from "./notifications.ts";
+import { parseImportFiles } from "./kordoc-import.ts";
 import {
   addComplaints,
   archiveAndClearComplaints,
@@ -31,6 +51,7 @@ import {
   DB_PATH,
   deleteArchiveFile,
   deleteComplaint,
+  deleteComplaints,
   getArchiveInfo,
   getComplaint,
   getDbStorageInfo,
@@ -44,7 +65,11 @@ import {
   restoreArchiveReplace,
   upsertComplaint,
 } from "./db.ts";
-import { stripComplaintMedia } from "../src/schema/index.ts";
+import {
+  stripComplaintMedia,
+  syncPhotoFields,
+  type ComplaintPhoto,
+} from "../src/schema/index.ts";
 import {
   freezeSnapshot,
   getLatestSnapshotForDate,
@@ -90,6 +115,7 @@ initDb();
 initAuthTables();
 initAuditTable();
 initSnapshotTable();
+initNotificationsTable();
 
 const app = express();
 
@@ -98,10 +124,17 @@ const JSON_LIMIT_DEFAULT = process.env.TM_JSON_LIMIT?.trim() || "1mb";
 const JSON_LIMIT_LARGE = process.env.TM_JSON_LARGE_LIMIT?.trim() || "50mb";
 
 function isLargeJsonPath(req: express.Request): boolean {
-  return (
+  if (
     (req.method === "POST" || req.method === "PUT") &&
     (req.path === "/api/complaints" || req.path === "/api/complaints/replace")
-  );
+  ) {
+    return true;
+  }
+  // 본인 담당 처리현황 패치에 사진 base64 포함 가능
+  if (req.method === "PATCH" && /^\/api\/complaints\/[^/]+\/status$/.test(req.path)) {
+    return true;
+  }
+  return false;
 }
 
 function drainRequest(req: express.Request): void {
@@ -208,6 +241,44 @@ function requireAuth(
   next();
 }
 
+function requirePermission(...keys: Permission[]) {
+  return (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ): void => {
+    const perms = req.session?.user.permissions ?? [];
+    if (!hasPermission(perms, keys.length === 1 ? keys[0]! : keys)) {
+      res.status(403).json({
+        error: "이 기능을 사용할 권한이 없습니다.",
+        code: "FORBIDDEN",
+        required: keys,
+      });
+      return;
+    }
+    next();
+  };
+}
+
+function requireAnyPermission(...keys: Permission[]) {
+  return (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ): void => {
+    const perms = req.session?.user.permissions ?? [];
+    if (!hasAnyPermission(perms, keys)) {
+      res.status(403).json({
+        error: "이 기능을 사용할 권한이 없습니다.",
+        code: "FORBIDDEN",
+        required: keys,
+      });
+      return;
+    }
+    next();
+  };
+}
+
 /** 민원 쓰기: 세션 확인 후에만 대용량 JSON 파싱 (미인증 DoS 완화) */
 function requireAuthLargeJson(
   req: express.Request,
@@ -267,7 +338,11 @@ function complaintAuditDetail(item: Complaint) {
 
 function auditComplaintMutation(
   req: express.Request,
-  action: "COMPLAINT_CREATE" | "COMPLAINT_UPDATE" | "COMPLAINT_DELETE",
+  action:
+    | "COMPLAINT_CREATE"
+    | "COMPLAINT_UPDATE"
+    | "COMPLAINT_STATUS"
+    | "COMPLAINT_DELETE",
   item: Complaint,
 ): void {
   const verb =
@@ -275,7 +350,9 @@ function auditComplaintMutation(
       ? "등록"
       : action === "COMPLAINT_UPDATE"
         ? "수정"
-        : "삭제";
+        : action === "COMPLAINT_STATUS"
+          ? "처리현황 변경"
+          : "삭제";
   auditFromReq(req, {
     userId: req.session!.user.id,
     username: req.session!.user.username,
@@ -922,6 +999,218 @@ app.post("/api/auth/change-password", requireAuth, (req, res) => {
   }
 });
 
+app.get(
+  "/api/permissions/catalog",
+  requireAuth,
+  requirePermission("menu.users"),
+  (_req, res) => {
+    res.json({
+      permissions: ALL_PERMISSIONS.map((id) => ({
+        id,
+        label: PERMISSION_LABELS[id],
+      })),
+    });
+  },
+);
+
+app.get(
+  "/api/users",
+  requireAuth,
+  requirePermission("users.manage"),
+  (_req, res) => {
+    res.json({ users: listUsers() });
+  },
+);
+
+/** 담당자 지정용 활성 사용자 목록 (민감 권한 제외) */
+app.get(
+  "/api/users/assignees",
+  requireAuth,
+  requireAnyPermission(
+    "complaints.assign",
+    "complaints.write",
+    "menu.ledger",
+  ),
+  (_req, res) => {
+    res.json({
+      users: listUsers()
+        .filter((u) => u.isActive)
+        .map((u) => ({
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+        })),
+    });
+  },
+);
+
+app.post(
+  "/api/users",
+  requireAuth,
+  requirePermission("users.manage"),
+  (req, res) => {
+    try {
+      const body = req.body as {
+        username?: string;
+        displayName?: string;
+        password?: string;
+        permissions?: Permission[];
+      };
+      const user = createUser({
+        username: String(body.username ?? ""),
+        displayName: body.displayName,
+        password: String(body.password ?? ""),
+        permissions: body.permissions ?? [],
+      });
+      auditFromReq(req, {
+        userId: req.session!.user.id,
+        username: req.session!.user.username,
+        action: "USER_CREATE",
+        summary: `계정 생성: ${user.username}`,
+        detail: { id: user.id, permissions: user.permissions },
+      });
+      res.status(201).json({ user });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "계정 생성 실패",
+      });
+    }
+  },
+);
+
+app.patch(
+  "/api/users/:id",
+  requireAuth,
+  requirePermission("users.manage"),
+  (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        res.status(400).json({ error: "잘못된 사용자 id" });
+        return;
+      }
+      const body = req.body as {
+        displayName?: string;
+        isActive?: boolean;
+        permissions?: Permission[];
+      };
+      const user = updateUser(id, body);
+      auditFromReq(req, {
+        userId: req.session!.user.id,
+        username: req.session!.user.username,
+        action: "USER_UPDATE",
+        summary: `계정 수정: ${user.username}`,
+        detail: {
+          id: user.id,
+          isActive: user.isActive,
+          permissions: user.permissions,
+        },
+      });
+      res.json({ user });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "계정 수정 실패",
+      });
+    }
+  },
+);
+
+app.post(
+  "/api/users/:id/reset-password",
+  requireAuth,
+  requirePermission("users.manage"),
+  (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const body = req.body as { password?: string };
+      if (!Number.isFinite(id)) {
+        res.status(400).json({ error: "잘못된 사용자 id" });
+        return;
+      }
+      resetUserPassword(req.session!.user.id, id, String(body.password ?? ""));
+      auditFromReq(req, {
+        userId: req.session!.user.id,
+        username: req.session!.user.username,
+        action: "USER_RESET_PASSWORD",
+        summary: `비밀번호 재설정: user#${id}`,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "비밀번호 재설정 실패",
+      });
+    }
+  },
+);
+
+app.get("/api/notifications", requireAuth, (req, res) => {
+  const userId = req.session!.user.id;
+  res.json({
+    unread: countUnreadNotifications(userId),
+    items: listNotifications(userId, Number(req.query.limit ?? 50)),
+  });
+});
+
+app.post("/api/notifications/:id/read", requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "잘못된 알림 id" });
+    return;
+  }
+  deleteNotification(req.session!.user.id, id);
+  res.json({
+    ok: true,
+    unread: countUnreadNotifications(req.session!.user.id),
+  });
+});
+
+app.post("/api/notifications/read-all", requireAuth, (req, res) => {
+  const n = deleteAllNotifications(req.session!.user.id);
+  res.json({ ok: true, marked: n, unread: 0 });
+});
+
+app.post(
+  "/api/import/parse",
+  requireAuth,
+  requirePermission("import.files"),
+  async (req, res) => {
+    try {
+      const multer = (await import("multer")).default;
+      const upload = multer({
+        storage: multer.memoryStorage(),
+        limits: { fileSize: 20 * 1024 * 1024, files: 10 },
+      }).array("files", 10);
+
+      await new Promise<void>((resolve, reject) => {
+        upload(req, res, (err) => (err ? reject(err) : resolve()));
+      });
+
+      const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+      if (!files.length) {
+        res.status(400).json({ error: "파일이 없습니다." });
+        return;
+      }
+      const result = await parseImportFiles(
+        files.map((f) => ({
+          originalName: f.originalname || "upload.bin",
+          buffer: f.buffer,
+        })),
+      );
+      auditFromReq(req, {
+        userId: req.session!.user.id,
+        username: req.session!.user.username,
+        action: "IMPORT_PARSE",
+        summary: `문서 인식 ${result.drafts.length}건 (오류 ${result.errors.length})`,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "문서 인식 실패",
+      });
+    }
+  },
+);
+
 app.get("/api/settings", requireAuth, (req, res) => {
   res.json({
     ...getSettings(),
@@ -960,7 +1249,11 @@ app.put("/api/settings", requireAuth, (req, res) => {
   }
 });
 
-app.get("/api/audit", requireAuth, (req, res) => {
+app.get(
+  "/api/audit",
+  requireAuth,
+  requirePermission("menu.audit"),
+  (req, res) => {
   const result = listAuditLogs({
     limit: Number(req.query.limit ?? 50),
     offset: Number(req.query.offset ?? 0),
@@ -1086,14 +1379,33 @@ app.post("/api/reports/snapshots", requireAuth, (req, res) => {
   res.status(201).json({ snapshot: snap });
 });
 
+function canViewAllComplaints(req: express.Request): boolean {
+  return hasPermission(req.session?.user.permissions, "complaints.write");
+}
+
+function scopeComplaintsForUser(
+  req: express.Request,
+  complaints: Complaint[],
+): Complaint[] {
+  if (canViewAllComplaints(req)) return complaints;
+  const uid = req.session!.user.id;
+  return complaints.filter((c) => c.assigneeUserId === uid);
+}
+
+function canViewComplaint(req: express.Request, item: Complaint): boolean {
+  if (canViewAllComplaints(req)) return true;
+  return item.assigneeUserId === req.session!.user.id;
+}
+
 app.get("/api/complaints", requireAuth, (req, res) => {
   const withMedia =
     req.query.media === "1" ||
     req.query.media === "true" ||
     req.query.includeMedia === "1";
   // 기본은 사진 본문 제외. 엑셀 등에서만 media=1 로 전체 로드.
+  const all = withMedia ? listComplaints() : listComplaintsLite();
   res.json({
-    complaints: withMedia ? listComplaints() : listComplaintsLite(),
+    complaints: scopeComplaintsForUser(req, all),
   });
 });
 
@@ -1104,13 +1416,50 @@ app.get("/api/complaints/:id", requireAuth, (req, res) => {
     res.status(404).json({ error: "민원을 찾을 수 없습니다." });
     return;
   }
+  if (!canViewComplaint(req, item)) {
+    res.status(403).json({ error: "본인에게 지정된 민원만 조회할 수 있습니다." });
+    return;
+  }
   res.json({ complaint: item });
 });
 
+function maybeNotifyAssignee(
+  req: express.Request,
+  before: Complaint | null,
+  after: Complaint,
+): void {
+  const perms = req.session?.user.permissions ?? [];
+  if (!hasPermission(perms, "complaints.assign")) return;
+  const nextId = after.assigneeUserId;
+  if (nextId == null) return;
+  if (before && before.assigneeUserId === nextId) return;
+  if (nextId === req.session!.user.id) return;
+  const label = after.assigneeName?.trim() || `user#${nextId}`;
+  createNotification({
+    userId: nextId,
+    type: "ASSIGNED",
+    complaintId: after.id,
+    message: `${req.session!.user.displayName || req.session!.user.username}님이 민원을 지정했습니다 · ${clipText(after.content, 40)} (${label})`,
+  });
+}
+
+function assertCanWriteComplaint(req: express.Request, res: express.Response): boolean {
+  const perms = req.session?.user.permissions ?? [];
+  if (hasPermission(perms, "complaints.write")) return true;
+  res.status(403).json({
+    error: "민원을 수정할 권한이 없습니다.",
+    code: "FORBIDDEN",
+  });
+  return false;
+}
+
 app.put("/api/complaints", requireAuthLargeJson, (req, res) => {
+  if (!assertCanWriteComplaint(req, res)) return;
   const input = req.body as ComplaintInput;
   const isUpdate = Boolean(input.id && complaintExists(input.id));
+  const before = input.id ? getComplaint(String(input.id)) : null;
   const item = upsertComplaint(input);
+  maybeNotifyAssignee(req, before, item);
   auditComplaintMutation(
     req,
     isUpdate ? "COMPLAINT_UPDATE" : "COMPLAINT_CREATE",
@@ -1120,6 +1469,7 @@ app.put("/api/complaints", requireAuthLargeJson, (req, res) => {
 });
 
 app.post("/api/complaints", requireAuthLargeJson, (req, res) => {
+  if (!assertCanWriteComplaint(req, res)) return;
   const body = req.body as ComplaintInput | { items: ComplaintInput[] };
   if ("items" in body && Array.isArray(body.items)) {
     const items = addComplaints(body.items).map(stripComplaintMedia);
@@ -1144,7 +1494,9 @@ app.post("/api/complaints", requireAuthLargeJson, (req, res) => {
   }
   const input = body as ComplaintInput;
   const isUpdate = Boolean(input.id && complaintExists(input.id));
+  const before = input.id ? getComplaint(String(input.id)) : null;
   const item = stripComplaintMedia(upsertComplaint(input));
+  maybeNotifyAssignee(req, before, item);
   auditComplaintMutation(
     req,
     isUpdate ? "COMPLAINT_UPDATE" : "COMPLAINT_CREATE",
@@ -1153,7 +1505,72 @@ app.post("/api/complaints", requireAuthLargeJson, (req, res) => {
   res.status(201).json({ complaint: item });
 });
 
+app.patch(
+  "/api/complaints/:id/status",
+  requireAuthLargeJson,
+  requireAnyPermission("complaints.write", "complaints.status_own"),
+  (req, res) => {
+    try {
+      const id = String(req.params.id);
+      const existing = getComplaint(id);
+      if (!existing) {
+        res.status(404).json({ error: "민원을 찾을 수 없습니다." });
+        return;
+      }
+      const perms = req.session!.user.permissions;
+      const canWrite = hasPermission(perms, "complaints.write");
+      const canOwn = hasPermission(perms, "complaints.status_own");
+      if (
+        !canWrite &&
+        !(canOwn && existing.assigneeUserId === req.session!.user.id)
+      ) {
+        res.status(403).json({
+          error: "본인에게 지정된 민원만 처리현황을 바꿀 수 있습니다.",
+          code: "FORBIDDEN",
+        });
+        return;
+      }
+      const body = req.body as {
+        processStatus?: Complaint["processStatus"];
+        completedOrDueAt?: string | null;
+        pendingReason?: string | null;
+        remark?: string | null;
+        photos?: ComplaintPhoto[];
+      };
+      const photoSync =
+        body.photos === undefined
+          ? null
+          : syncPhotoFields(Array.isArray(body.photos) ? body.photos : []);
+      const item = upsertComplaint({
+        ...existing,
+        processStatus:
+          body.processStatus === undefined
+            ? existing.processStatus
+            : body.processStatus,
+        completedOrDueAt:
+          body.completedOrDueAt === undefined
+            ? existing.completedOrDueAt
+            : body.completedOrDueAt,
+        pendingReason:
+          body.pendingReason === undefined
+            ? existing.pendingReason
+            : body.pendingReason,
+        remark:
+          body.remark === undefined ? existing.remark : body.remark,
+        ...(photoSync ?? {}),
+      });
+      auditComplaintMutation(req, "COMPLAINT_STATUS", item);
+      res.json({ complaint: stripComplaintMedia(item) });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "처리현황 변경 실패",
+      });
+    }
+  },
+);
+
 app.post("/api/complaints/replace", requireAuthLargeJson, (req, res) => {
+  if (!assertCanWriteComplaint(req, res)) return;
   const body = req.body as { complaints?: Complaint[] };
   const items = replaceAll(body.complaints ?? []);
   auditFromReq(req, {
@@ -1207,6 +1624,7 @@ app.post("/api/complaints/reset-seed", requireAuth, (req, res) => {
 });
 
 app.delete("/api/complaints/:id", requireAuth, (req, res) => {
+  if (!assertCanWriteComplaint(req, res)) return;
   const id = String(req.params.id);
   if (!complaintExists(id)) {
     res.status(404).json({ error: "민원을 찾을 수 없습니다." });
@@ -1227,6 +1645,44 @@ app.delete("/api/complaints/:id", requireAuth, (req, res) => {
     });
   }
   res.json({ ok: true, id });
+});
+
+app.post("/api/complaints/batch-delete", requireAuth, (req, res) => {
+  if (!assertCanWriteComplaint(req, res)) return;
+  const body = req.body as { ids?: unknown };
+  const ids = Array.isArray(body.ids)
+    ? body.ids.filter((x): x is string => typeof x === "string" && x.length > 0)
+    : [];
+  if (ids.length === 0) {
+    res.status(400).json({ error: "삭제할 민원을 선택하세요." });
+    return;
+  }
+  if (ids.length > 500) {
+    res.status(400).json({ error: "한 번에 최대 500건까지 삭제할 수 있습니다." });
+    return;
+  }
+  const preview = ids
+    .slice(0, 20)
+    .map((id) => getComplaint(id))
+    .filter((c): c is Complaint => Boolean(c));
+  const deletedIds = deleteComplaints(ids);
+  auditFromReq(req, {
+    userId: req.session!.user.id,
+    username: req.session!.user.username,
+    action: "COMPLAINT_BATCH_DELETE",
+    resourceType: "complaint",
+    summary: `민원 일괄삭제 ${deletedIds.length}건`,
+    detail: {
+      requested: ids.length,
+      deleted: deletedIds.length,
+      ids: deletedIds.slice(0, 100),
+      samples: preview.map((c) => ({
+        id: c.id,
+        content: clipText(c.content, 60),
+      })),
+    },
+  });
+  res.json({ ok: true, deletedIds, count: deletedIds.length });
 });
 
 app.use("/api", (_req, res) => {

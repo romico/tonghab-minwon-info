@@ -7,13 +7,12 @@ import {
   type FieldCode,
   type ProcessStatus,
 } from "@/schema";
-import {
-  fieldLabelOf,
-  parseHwpxFiles,
-  type HwpxImportDraft,
-} from "@/import/hwpxParser";
+import { fieldLabelOf, type HwpxImportDraft } from "@/import/hwpxParser";
+import { apiParseImportFiles } from "@/api/importParse";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
+import { userHasPermission } from "@/lib/permissions";
 
 type ProgressState = {
   phase: "parse";
@@ -23,6 +22,8 @@ type ProgressState = {
 };
 
 export function HwpxImportPanel() {
+  const { user } = useAuth();
+  const canImport = userHasPermission(user?.permissions, "import.files");
   const { importJob, startImportJob } = useComplaintStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const [drafts, setDrafts] = useState<HwpxImportDraft[]>([]);
@@ -59,25 +60,31 @@ export function HwpxImportPanel() {
       detail: "파일 분석 준비…",
     });
     try {
-      const result = await parseHwpxFiles(files, (done, total, fileName) => {
-        setProgress({
-          phase: "parse",
-          current: done,
-          total,
-          detail: done >= total ? "분석 완료" : `분석 중 · ${fileName}`,
-        });
+      setProgress({
+        phase: "parse",
+        current: 0,
+        total: files.length,
+        detail: "서버에서 문서 인식 중…",
       });
+      const result = await apiParseImportFiles(files);
       setDrafts(result.drafts);
       setErrors(result.errors);
       if (result.drafts.length === 0 && result.errors.length === 0) {
         setMessageTone("error");
         setMessage("파싱된 항목이 없습니다.");
       }
+    } catch (err) {
+      setMessageTone("error");
+      setMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setParsing(false);
       setProgress(null);
       if (inputRef.current) inputRef.current.value = "";
     }
+  }
+
+  if (!canImport) {
+    return null;
   }
 
   function updateDraft(index: number, patch: Partial<HwpxImportDraft>) {
@@ -131,12 +138,12 @@ export function HwpxImportPanel() {
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
       <div className="panel-head">
-        <h2>민원카드 가져오기</h2>
+        <h2>민원카드 가져오기 (HWPX·PDF)</h2>
         <div className="toolbar">
           <input
             ref={inputRef}
             type="file"
-            accept=".hwpx,application/hwp+zip"
+            accept=".hwpx,.hwp,.pdf,application/pdf,application/hwp+zip"
             multiple
             hidden
             onChange={(e) => void onFilesSelected(e.target.files)}

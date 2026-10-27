@@ -206,7 +206,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
   opensource: {
     id: "opensource",
     title: "오픈소스 고지",
-    updatedAt: "2026-10-23",
+    updatedAt: "2026-10-27",
     summary: "본 제품이 사용하는 주요 오픈소스 구성 요소와 라이선스입니다.",
     blocks: [
       {
@@ -231,6 +231,8 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDocument> = {
           "file-saver 2.0.5 — MIT",
           "jszip 3.10.2 — MIT OR GPL-3.0-or-later (본 제품은 MIT 조건으로 사용)",
           "qrcode 1.5.4 — MIT",
+          "kordoc 4.24.11 (문서 인식 HWPX·PDF) — MIT",
+          "multer 2.x — MIT",
         ],
       },
       { type: "h3", text: "빌드·개발" },

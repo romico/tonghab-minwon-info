@@ -1,4 +1,4 @@
-import type { Complaint, ComplaintInput } from "@/schema";
+import type { Complaint, ComplaintInput } from "../schema/index.ts";
 
 function normText(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();

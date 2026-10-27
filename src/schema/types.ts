@@ -93,6 +93,8 @@ export interface Complaint {
   pendingReason: string | null;
   departmentId: string;
   assigneeName: string | null;
+  /** 시스템 사용자 id — 알림·본인 담당 처리현황용 */
+  assigneeUserId: number | null;
   /** @deprecated photos role=before 와 동기화 */
   photoBeforeUrl: string | null;
   /** @deprecated photos role=after 와 동기화 */

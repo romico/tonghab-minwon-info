@@ -220,6 +220,21 @@ export function deleteComplaint(id: string): boolean {
   return Number(result.changes) > 0;
 }
 
+/** 여러 건 삭제. 존재하는 id만 지우고 삭제된 id 목록을 반환한다. */
+export function deleteComplaints(ids: string[]): string[] {
+  const unique = [...new Set(ids.map(String).filter(Boolean))];
+  if (unique.length === 0) return [];
+  const deleted: string[] = [];
+  const stmt = getDb().prepare("DELETE FROM complaints WHERE id = ?");
+  withTransaction(() => {
+    for (const id of unique) {
+      const result = stmt.run(id);
+      if (Number(result.changes) > 0) deleted.push(id);
+    }
+  });
+  return deleted;
+}
+
 export function replaceAll(complaints: Complaint[]): Complaint[] {
   const normalized = complaints.map((c) => normalizeComplaint(c));
   const insert = getDb().prepare(

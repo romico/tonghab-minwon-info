@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   apiAddComplaints,
+  apiBatchDeleteComplaints,
   apiDeleteComplaint,
   apiListComplaints,
   apiReplaceComplaints,
@@ -129,6 +130,7 @@ interface StoreValue {
   cancelImportJob: () => void;
   dismissImportJob: () => void;
   deleteComplaint: (id: string) => Promise<void>;
+  deleteComplaints: (ids: string[]) => Promise<number>;
   resetSeed: (password: string, totpCode?: string) => Promise<void>;
   departmentStatus: DepartmentStatusRow[];
   summary: SummaryReport;
@@ -446,6 +448,13 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
     setComplaints((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
+  const deleteComplaints = useCallback(async (ids: string[]) => {
+    const { deletedIds, count } = await apiBatchDeleteComplaints(ids);
+    const removed = new Set(deletedIds);
+    setComplaints((prev) => prev.filter((c) => !removed.has(c.id)));
+    return count;
+  }, []);
+
   const resetSeed = useCallback(async (password: string, totpCode?: string) => {
     const items = await apiResetSeed(password, totpCode);
     setComplaints(items);
@@ -486,6 +495,7 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
       cancelImportJob,
       dismissImportJob,
       deleteComplaint,
+      deleteComplaints,
       resetSeed,
       departmentStatus,
       summary,
@@ -512,6 +522,7 @@ export function ComplaintProvider({ children }: { children: ReactNode }) {
       cancelImportJob,
       dismissImportJob,
       deleteComplaint,
+      deleteComplaints,
       resetSeed,
       departmentStatus,
       summary,

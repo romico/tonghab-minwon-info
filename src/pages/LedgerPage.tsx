@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { apiGetComplaint } from "@/api/complaints";
+import { apiGetComplaint, apiPatchComplaintStatus } from "@/api/complaints";
 import {
   DEPARTMENTS,
   FIELD_OPTIONS,
@@ -14,9 +14,12 @@ import {
   type FieldCode,
   type ProcessStatus,
 } from "@/schema";
+import { apiListAssignees, type AssigneeOption } from "@/api/users";
 import { HwpxImportPanel } from "@/components/HwpxImportPanel";
 import { MaskedPersonalInfo } from "@/components/MaskedPersonalInfo";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { userHasPermission } from "@/lib/permissions";
+import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
 
 const LEDGER_PAGE_SIZE = 20;
@@ -87,6 +90,7 @@ const emptyForm = (): ComplaintInput => ({
   pendingReason: "",
   departmentId: DEPARTMENTS.find((d) => d.name === "덕진구 청소위생과")!.id,
   assigneeName: "",
+  assigneeUserId: null,
   photoBeforeUrl: null,
   photoAfterUrl: null,
   photos: [],
@@ -105,17 +109,31 @@ export function LedgerPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
+  const canAssign = userHasPermission(user?.permissions, "complaints.assign");
+  const canWrite = userHasPermission(user?.permissions, "complaints.write");
+  const canStatusOwn = userHasPermission(
+    user?.permissions,
+    "complaints.status_own",
+  );
+  /** write 없이 status_own만: 처리현황·비고·사진만 수정 */
+  const ownOnly = !canWrite && canStatusOwn;
   const {
     complaints,
     filteredComplaints,
     upsertComplaint,
     deleteComplaint,
+    deleteComplaints,
+    refreshComplaints,
   } = useComplaintStore();
+  const [assignees, setAssignees] = useState<AssigneeOption[]>([]);
   const [editing, setEditing] = useState<ComplaintInput | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportMask, setExportMask] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Complaint | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState(
@@ -176,11 +194,55 @@ export function LedgerPage() {
 
   useEffect(() => {
     setListPage(1);
+    setSelectedIds(new Set());
   }, [fieldFilter, statusFilter, deptFilter, searchQuery]);
 
   useEffect(() => {
     if (listPage > pageCount) setListPage(pageCount);
   }, [listPage, pageCount]);
+
+  const pageIds = useMemo(
+    () => pagedComplaints.map((c) => c.id),
+    [pagedComplaints],
+  );
+  const selectedOnPage = pageIds.filter((id) => selectedIds.has(id));
+  const allPageSelected =
+    pageIds.length > 0 && selectedOnPage.length === pageIds.length;
+  const somePageSelected =
+    selectedOnPage.length > 0 && selectedOnPage.length < pageIds.length;
+  const selectedComplaints = useMemo(
+    () => displayComplaints.filter((c) => selectedIds.has(c.id)),
+    [displayComplaints, selectedIds],
+  );
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectPage() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const id of pageIds) next.delete(id);
+      } else {
+        for (const id of pageIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function selectAllFiltered() {
+    setSelectedIds(new Set(displayComplaints.map((c) => c.id)));
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
 
   const hasActiveSearch =
     normalizeSearchText(searchQuery).length > 0 ||
@@ -282,6 +344,13 @@ export function LedgerPage() {
     }
   }
 
+  useEffect(() => {
+    if (!canAssign && !canWrite) return;
+    void apiListAssignees()
+      .then(setAssignees)
+      .catch(() => setAssignees([]));
+  }, [canAssign, canWrite]);
+
   // 부서별현황 등에서 ?edit=id 로 진입 시 수정 폼 오픈
   useEffect(() => {
     const editId = searchParams.get("edit");
@@ -309,17 +378,29 @@ export function LedgerPage() {
     e.preventDefault();
     if (!editing || !editing.content.trim()) return;
     try {
-      await upsertComplaint({
-        ...editing,
-        complainantPhone: editing.complainantPhone || null,
-        location: editing.location || null,
-        pendingReason: editing.pendingReason || null,
-        assigneeName: editing.assigneeName || null,
-        remark: editing.remark || null,
-        notifiedAt: editing.notifiedAt || null,
-        completedOrDueAt: editing.completedOrDueAt || null,
-        ...syncPhotoFields(editing.photos ?? []),
-      });
+      if (ownOnly && editing.id) {
+        await apiPatchComplaintStatus(editing.id, {
+          processStatus: editing.processStatus,
+          completedOrDueAt: editing.completedOrDueAt || null,
+          pendingReason: editing.pendingReason || null,
+          remark: editing.remark || null,
+          ...syncPhotoFields(editing.photos ?? []),
+        });
+        await refreshComplaints();
+      } else {
+        await upsertComplaint({
+          ...editing,
+          complainantPhone: editing.complainantPhone || null,
+          location: editing.location || null,
+          pendingReason: editing.pendingReason || null,
+          assigneeName: editing.assigneeName || null,
+          assigneeUserId: editing.assigneeUserId ?? null,
+          remark: editing.remark || null,
+          notifiedAt: editing.notifiedAt || null,
+          completedOrDueAt: editing.completedOrDueAt || null,
+          ...syncPhotoFields(editing.photos ?? []),
+        });
+      }
       closeEditAndReturn();
     } catch (err) {
       console.error(err);
@@ -335,12 +416,21 @@ export function LedgerPage() {
 
   function requestDelete(c: Complaint) {
     setDeleteErr(null);
+    setBulkDeleteOpen(false);
     setDeleteTarget(c);
+  }
+
+  function requestBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setDeleteErr(null);
+    setDeleteTarget(null);
+    setBulkDeleteOpen(true);
   }
 
   function cancelDelete() {
     if (deleting) return;
     setDeleteTarget(null);
+    setBulkDeleteOpen(false);
     setDeleteErr(null);
   }
 
@@ -350,11 +440,34 @@ export function LedgerPage() {
     setDeleteErr(null);
     try {
       await deleteComplaint(deleteTarget.id);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deleteTarget.id);
+        return next;
+      });
       setDeleteTarget(null);
     } catch (err) {
       console.error(err);
       setDeleteErr(
         err instanceof Error ? err.message : "삭제에 실패했습니다.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function confirmBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setDeleting(true);
+    setDeleteErr(null);
+    try {
+      await deleteComplaints([...selectedIds]);
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+    } catch (err) {
+      console.error(err);
+      setDeleteErr(
+        err instanceof Error ? err.message : "일괄 삭제에 실패했습니다.",
       );
     } finally {
       setDeleting(false);
@@ -392,7 +505,11 @@ export function LedgerPage() {
       <div className="page-header">
         <div>
           <h1>관리대장</h1>
-          <p>생활민원 원천 입력. 민원카드를 가져오거나 직접 등록할 수 있습니다.</p>
+          <p>
+            {canWrite
+              ? "생활민원 원천 입력. 민원카드를 가져오거나 직접 등록할 수 있습니다."
+              : "본인에게 지정된 민원만 표시됩니다. 처리현황을 변경할 수 있습니다."}
+          </p>
         </div>
         <div className="toolbar">
           <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -413,9 +530,11 @@ export function LedgerPage() {
           >
             {exporting ? "내보내는 중…" : "엑셀 다운로드"}
           </button>
-          <button type="button" className="btn btn-primary" onClick={startCreate}>
-            민원 등록
-          </button>
+          {canWrite && (
+            <button type="button" className="btn btn-primary" onClick={startCreate}>
+              민원 등록
+            </button>
+          )}
         </div>
       </div>
 
@@ -444,6 +563,7 @@ export function LedgerPage() {
                 접수경로
                 <select
                   value={editing.receiptRouteCode}
+                  disabled={ownOnly}
                   onChange={(e) =>
                     setEditing({ ...editing, receiptRouteCode: e.target.value })
                   }
@@ -460,6 +580,7 @@ export function LedgerPage() {
                 <input
                   type="date"
                   value={editing.receivedAt}
+                  disabled={ownOnly}
                   onChange={(e) =>
                     setEditing({ ...editing, receivedAt: e.target.value })
                   }
@@ -471,6 +592,7 @@ export function LedgerPage() {
                 <input
                   type="date"
                   value={editing.notifiedAt ?? ""}
+                  disabled={ownOnly}
                   onChange={(e) =>
                     setEditing({
                       ...editing,
@@ -483,6 +605,7 @@ export function LedgerPage() {
                 민원인
                 <input
                   value={editing.complainantName}
+                  readOnly={ownOnly}
                   onChange={(e) =>
                     setEditing({ ...editing, complainantName: e.target.value })
                   }
@@ -493,6 +616,7 @@ export function LedgerPage() {
                 연락처
                 <input
                   value={editing.complainantPhone ?? ""}
+                  readOnly={ownOnly}
                   onChange={(e) =>
                     setEditing({ ...editing, complainantPhone: e.target.value })
                   }
@@ -502,6 +626,7 @@ export function LedgerPage() {
                 분야
                 <select
                   value={editing.fieldCode}
+                  disabled={ownOnly}
                   onChange={(e) =>
                     setEditing({
                       ...editing,
@@ -520,6 +645,7 @@ export function LedgerPage() {
                 민원내용
                 <textarea
                   value={editing.content}
+                  readOnly={ownOnly}
                   onChange={(e) =>
                     setEditing({ ...editing, content: e.target.value })
                   }
@@ -530,6 +656,7 @@ export function LedgerPage() {
                 위치
                 <input
                   value={editing.location ?? ""}
+                  readOnly={ownOnly}
                   onChange={(e) =>
                     setEditing({ ...editing, location: e.target.value })
                   }
@@ -580,6 +707,7 @@ export function LedgerPage() {
                 처리부서
                 <select
                   value={editing.departmentId}
+                  disabled={ownOnly}
                   onChange={(e) =>
                     setEditing({ ...editing, departmentId: e.target.value })
                   }
@@ -593,12 +721,37 @@ export function LedgerPage() {
               </label>
               <label className="field">
                 담당자
-                <input
-                  value={editing.assigneeName ?? ""}
-                  onChange={(e) =>
-                    setEditing({ ...editing, assigneeName: e.target.value })
-                  }
-                />
+                {canAssign || canWrite ? (
+                  <select
+                    value={editing.assigneeUserId ?? ""}
+                    onChange={(e) => {
+                      const id = e.target.value
+                        ? Number(e.target.value)
+                        : null;
+                      const picked = assignees.find((a) => a.id === id);
+                      setEditing({
+                        ...editing,
+                        assigneeUserId: id,
+                        assigneeName: picked?.displayName ?? "",
+                      });
+                    }}
+                  >
+                    <option value="">미지정</option>
+                    {assignees.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.displayName} ({a.username})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={editing.assigneeName ?? ""}
+                    readOnly={ownOnly}
+                    onChange={(e) =>
+                      setEditing({ ...editing, assigneeName: e.target.value })
+                    }
+                  />
+                )}
               </label>
               <label className="field span-2">
                 비고
@@ -616,14 +769,16 @@ export function LedgerPage() {
                     <span className="muted">등록된 사진이 없습니다.</span>
                   ) : (
                     <>
-                      <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>
-                        사진을 클릭한 뒤 역할(현장 / 처리 전 / 처리 후 / 기타)을 변경하거나
-                        제외할 수 있습니다.
-                      </p>
+                      {(ownOnly || canWrite) && (
+                        <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>
+                          사진을 클릭한 뒤 역할(현장 / 처리 전 / 처리 후 / 기타)을 변경하거나
+                          제외할 수 있습니다.
+                        </p>
+                      )}
                       <PhotoGallery
                         photos={editing.photos ?? []}
                         size={72}
-                        editable
+                        editable={ownOnly || canWrite}
                         onChangeRole={(photoId, role) => {
                           const photos = (editing.photos ?? []).map((p) =>
                             p.id === photoId
@@ -791,72 +946,139 @@ export function LedgerPage() {
               </button>
             </div>
           ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>연번</th>
-                  <th>사진</th>
-                  <th>접수경로</th>
-                  <th>접수일</th>
-                  <th>통보일</th>
-                  <th>민원인</th>
-                  <th>분야</th>
-                  <th>민원내용</th>
-                  <th>위치</th>
-                  <th>처리구분</th>
-                  <th>처리부서</th>
-                  <th>담당자</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {pagedComplaints.map((c, i) => (
-                  <tr key={c.id}>
-                    <td className="num">{pageStart + i + 1}</td>
-                    <td>
-                      <PhotoGallery photos={c.photos ?? []} size={56} />
-                    </td>
-                    <td>{c.receiptRouteCode}</td>
-                    <td>{c.receivedAt}</td>
-                    <td>{c.notifiedAt ?? "—"}</td>
-                    <td>
-                      <MaskedPersonalInfo
-                        name={c.complainantName}
-                        phone={c.complainantPhone}
-                      />
-                    </td>
-                    <td>
-                      {FIELD_OPTIONS.find((f) => f.code === c.fieldCode)?.label}
-                    </td>
-                    <td className="content-cell" title={c.content}>
-                      {c.content}
-                    </td>
-                    <td>{c.location ?? "—"}</td>
-                    <td>{statusBadge(c.processStatus)}</td>
-                    <td>{deptName[c.departmentId]}</td>
-                    <td>{c.assigneeName ?? "—"}</td>
-                    <td>
-                      <div className="toolbar">
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => void startEdit(c)}
-                        >
-                          수정
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-danger"
-                          onClick={() => requestDelete(c)}
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </td>
+            <>
+              {canWrite && (
+                <div className="ledger-bulk-bar">
+                  <span className="ledger-bulk-count">
+                    {selectedIds.size > 0
+                      ? `${selectedIds.size}건 선택`
+                      : "선택 없음"}
+                  </span>
+                  <div className="toolbar">
+                    {selectedIds.size < displayComplaints.length && (
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={selectAllFiltered}
+                      >
+                        검색결과 전체 선택 ({displayComplaints.length})
+                      </button>
+                    )}
+                    {selectedIds.size > 0 && (
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={clearSelection}
+                      >
+                        선택 해제
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      disabled={selectedIds.size === 0}
+                      onClick={requestBulkDelete}
+                    >
+                      선택 삭제
+                    </button>
+                  </div>
+                </div>
+              )}
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    {canWrite && (
+                      <th className="ledger-check-col">
+                        <input
+                          type="checkbox"
+                          checked={allPageSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = somePageSelected;
+                          }}
+                          onChange={toggleSelectPage}
+                          aria-label="이 페이지 전체 선택"
+                        />
+                      </th>
+                    )}
+                    <th>연번</th>
+                    <th>사진</th>
+                    <th>접수경로</th>
+                    <th>접수일</th>
+                    <th>통보일</th>
+                    <th>민원인</th>
+                    <th>분야</th>
+                    <th>민원내용</th>
+                    <th>위치</th>
+                    <th>처리구분</th>
+                    <th>처리부서</th>
+                    <th>담당자</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pagedComplaints.map((c, i) => (
+                    <tr
+                      key={c.id}
+                      className={selectedIds.has(c.id) ? "is-selected" : undefined}
+                    >
+                      {canWrite && (
+                        <td className="ledger-check-col">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(c.id)}
+                            onChange={() => toggleSelect(c.id)}
+                            aria-label={`${pageStart + i + 1}번 선택`}
+                          />
+                        </td>
+                      )}
+                      <td className="num">{pageStart + i + 1}</td>
+                      <td>
+                        <PhotoGallery photos={c.photos ?? []} size={56} />
+                      </td>
+                      <td>{c.receiptRouteCode}</td>
+                      <td>{c.receivedAt}</td>
+                      <td>{c.notifiedAt ?? "—"}</td>
+                      <td>
+                        <MaskedPersonalInfo
+                          name={c.complainantName}
+                          phone={c.complainantPhone}
+                        />
+                      </td>
+                      <td>
+                        {FIELD_OPTIONS.find((f) => f.code === c.fieldCode)?.label}
+                      </td>
+                      <td className="content-cell" title={c.content}>
+                        {c.content}
+                      </td>
+                      <td>{c.location ?? "—"}</td>
+                      <td>{statusBadge(c.processStatus)}</td>
+                      <td>{deptName[c.departmentId]}</td>
+                      <td>{c.assigneeName ?? "—"}</td>
+                      <td>
+                        <div className="toolbar">
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => void startEdit(c)}
+                          >
+                            수정
+                          </button>
+                          {canWrite && (
+                            <button
+                              type="button"
+                              className="btn btn-danger"
+                              onClick={() => requestDelete(c)}
+                            >
+                              삭제
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
         {displayComplaints.length > 0 && (
@@ -930,6 +1152,62 @@ export function LedgerPage() {
                 autoFocus
               >
                 {deleting ? "삭제 중…" : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteOpen && (
+        <div
+          className="settings-confirm-backdrop"
+          role="presentation"
+          onClick={cancelDelete}
+        >
+          <div
+            className="settings-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ledger-bulk-delete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="ledger-bulk-delete-title">민원 일괄 삭제 확인</h3>
+            <p>
+              선택한 <strong>{selectedIds.size}건</strong>을 삭제합니다. 삭제
+              후에는 되돌릴 수 없습니다.
+            </p>
+            <ul className="ledger-bulk-preview">
+              {selectedComplaints.slice(0, 8).map((c) => (
+                <li key={c.id} title={c.content}>
+                  {c.content?.trim() || c.id}
+                </li>
+              ))}
+              {selectedComplaints.length > 8 && (
+                <li className="muted">
+                  외 {selectedComplaints.length - 8}건
+                </li>
+              )}
+            </ul>
+            {deleteErr && (
+              <p className="settings-alert is-error">{deleteErr}</p>
+            )}
+            <div className="settings-confirm-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={cancelDelete}
+                disabled={deleting}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void confirmBulkDelete()}
+                disabled={deleting}
+                autoFocus
+              >
+                {deleting ? "삭제 중…" : `${selectedIds.size}건 삭제`}
               </button>
             </div>
           </div>

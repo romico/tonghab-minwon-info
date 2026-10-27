@@ -1,7 +1,12 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { ImportJobBanner } from "@/components/ImportJobBanner";
+import { NotificationBell } from "@/components/NotificationBell";
 import { PeriodLoadingOverlay } from "@/components/PeriodLoadingOverlay";
+import {
+  MENU_TO_PERMISSION,
+  userHasPermission,
+} from "@/lib/permissions";
 import { useAuth } from "@/store/AuthStore";
 import { useComplaintStore } from "@/store/ComplaintStore";
 
@@ -12,14 +17,24 @@ const LINKS = [
   { to: "/summary", step: "3", label: "총괄표" },
   { to: "/daily", step: "4", label: "일일보고" },
   { to: "/audit", step: "A", label: "감사로그" },
+  { to: "/users", step: "U", label: "계정·권한" },
   { to: "/settings", step: "S", label: "설정" },
 ];
 
-const HIDE_PERIOD_PATHS = new Set(["/audit", "/settings"]);
+const HIDE_PERIOD_PATHS = new Set(["/audit", "/settings", "/users"]);
 
 export function AppLayout() {
   const location = useLocation();
   const { user, logout, expiresAt, authWarning, clearAuthWarning } = useAuth();
+  const permissions = user?.permissions ?? [];
+  const visibleLinks = useMemo(
+    () =>
+      LINKS.filter((link) => {
+        const need = MENU_TO_PERMISSION[link.to];
+        return !need || userHasPermission(permissions, need);
+      }),
+    [permissions],
+  );
   const {
     periodFrom,
     periodTo,
@@ -66,6 +81,18 @@ export function AppLayout() {
       document.body.classList.remove("nav-open");
     };
   }, [navOpen]);
+
+  const requiredMenu =
+    MENU_TO_PERMISSION[location.pathname] ??
+    (location.pathname.startsWith("/ledger") ? "menu.ledger" : undefined);
+  if (
+    requiredMenu &&
+    permissions.length > 0 &&
+    !userHasPermission(permissions, requiredMenu)
+  ) {
+    const fallback = visibleLinks[0]?.to ?? "/settings";
+    return <Navigate to={fallback} replace />;
+  }
 
   return (
     <div className={`app-shell${navOpen ? " is-nav-open" : ""}`}>
@@ -122,7 +149,7 @@ export function AppLayout() {
           <span className="brand-title">통합민원정보</span>
         </div>
         <nav className="nav">
-          {LINKS.map((link) => (
+          {visibleLinks.map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -137,12 +164,15 @@ export function AppLayout() {
           ))}
         </nav>
         <div className="flow-hint">
+          <NotificationBell />
           <div className="flow-hint-user">
             <span className="flow-hint-avatar" aria-hidden>
-              {(user?.username ?? "?").slice(0, 1).toUpperCase()}
+              {(user?.displayName ?? user?.username ?? "?").slice(0, 1).toUpperCase()}
             </span>
             <div className="flow-hint-id">
-              <span className="flow-hint-name">{user?.username}</span>
+              <span className="flow-hint-name">
+                {user?.displayName ?? user?.username}
+              </span>
               {expiresAt && (
                 <span className="flow-hint-session">
                   세션{" "}

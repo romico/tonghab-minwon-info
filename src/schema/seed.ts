@@ -21,6 +21,7 @@ export const SEED_COMPLAINTS: Complaint[] = [
     pendingReason: "처리불가",
     departmentId: DEPARTMENT_BY_NAME["덕진구 산업교통과"]!.id,
     assigneeName: "이땡땡",
+    assigneeUserId: null,
     photoBeforeUrl: null,
     photoAfterUrl: null,
     photos: [],
@@ -46,6 +47,7 @@ export const SEED_COMPLAINTS: Complaint[] = [
     pendingReason: "처리불가",
     departmentId: DEPARTMENT_BY_NAME["덕진구 청소위생과"]!.id,
     assigneeName: "임땡땡",
+    assigneeUserId: null,
     photoBeforeUrl: null,
     photoAfterUrl: null,
     photos: [],
@@ -68,6 +70,8 @@ export function normalizeComplaint(
   return {
     ...partial,
     ...synced,
+    assigneeUserId:
+      partial.assigneeUserId === undefined ? null : partial.assigneeUserId,
     importKey: partial.importKey ?? null,
     receiptRouteGroup:
       partial.receiptRouteGroup ?? inferRouteGroup(partial.receiptRouteCode),

@@ -1,10 +1,28 @@
 import { apiRequest } from "./client";
 
+export type Permission =
+  | "menu.dashboard"
+  | "menu.ledger"
+  | "menu.departments"
+  | "menu.summary"
+  | "menu.daily"
+  | "menu.audit"
+  | "menu.settings"
+  | "menu.users"
+  | "users.manage"
+  | "complaints.write"
+  | "complaints.assign"
+  | "complaints.status_own"
+  | "import.files";
+
 export interface AuthUser {
   id: number;
   username: string;
+  displayName?: string;
   totpEnabled?: boolean;
   mustChangePassword?: boolean;
+  isActive?: boolean;
+  permissions?: Permission[];
 }
 
 export interface VaultStatus {

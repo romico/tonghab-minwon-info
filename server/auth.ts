@@ -12,12 +12,18 @@ import {
   unsealSecret,
   tryUnsealSecret,
   deriveVaultKey,
-  unlockVaultWithPassword,
-  rotateVaultPassword,
+  unlockVaultForUser,
+  rewrapVaultPassword,
+  wrapActiveDekForUser,
   getActiveDek,
   isVaultUnlocked,
   getVaultStatus,
 } from "./vault.ts";
+import {
+  ALL_PERMISSIONS,
+  parsePermissionsJson,
+  type Permission,
+} from "./permissions.ts";
 
 export const MIN_SESSION_TTL_MINUTES = 10;
 export const DEFAULT_SESSION_TTL_MINUTES = 30;
@@ -28,9 +34,12 @@ const CHALLENGE_TTL_MS = 5 * 60_000;
 export interface AuthUser {
   id: number;
   username: string;
+  displayName: string;
   totpEnabled: boolean;
   /** 기본 비밀번호(admin) 사용 중 — 변경 전까지 다른 API 차단 */
   mustChangePassword: boolean;
+  isActive: boolean;
+  permissions: Permission[];
 }
 
 export interface AppSettings {
@@ -115,6 +124,52 @@ function ensureTotpColumns(): void {
       `ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`,
     );
   }
+  if (!names.has("display_name")) {
+    db.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`);
+  }
+  if (!names.has("is_active")) {
+    db.exec(
+      `ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`,
+    );
+  }
+  if (!names.has("permissions_json")) {
+    db.exec(`ALTER TABLE users ADD COLUMN permissions_json TEXT`);
+  }
+  if (!names.has("vault_wrap")) {
+    db.exec(`ALTER TABLE users ADD COLUMN vault_wrap TEXT`);
+  }
+  if (!names.has("vault_wrap_salt")) {
+    db.exec(`ALTER TABLE users ADD COLUMN vault_wrap_salt TEXT`);
+  }
+}
+
+function ensureAdminPermissions(): void {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT id, username, permissions_json, display_name FROM users`)
+    .all() as Array<{
+    id: number;
+    username: string;
+    permissions_json: string | null;
+    display_name: string | null;
+  }>;
+  const update = db.prepare(
+    `UPDATE users SET permissions_json = ?, display_name = COALESCE(NULLIF(display_name, ''), ?), updated_at = datetime('now') WHERE id = ?`,
+  );
+  const allJson = JSON.stringify(ALL_PERMISSIONS);
+  for (const row of rows) {
+    const perms = parsePermissionsJson(row.permissions_json);
+    const display = row.display_name?.trim() || row.username;
+    if (row.username === DEFAULT_USERNAME && perms.length === 0) {
+      update.run(allJson, display, row.id);
+    } else if (!row.display_name) {
+      update.run(
+        row.permissions_json ?? JSON.stringify([]),
+        display,
+        row.id,
+      );
+    }
+  }
 }
 
 /** 아직 기본 비밀번호(admin)인 계정은 변경 강제 플래그를 켠다 */
@@ -165,11 +220,18 @@ export function initAuthTables(): void {
   };
   if (userCount.n === 0) {
     db.prepare(
-      `INSERT INTO users (username, password_hash, must_change_password) VALUES (?, ?, 1)`,
-    ).run(DEFAULT_USERNAME, hashPassword(DEFAULT_PASSWORD));
+      `INSERT INTO users (username, password_hash, must_change_password, display_name, is_active, permissions_json)
+       VALUES (?, ?, 1, ?, 1, ?)`,
+    ).run(
+      DEFAULT_USERNAME,
+      hashPassword(DEFAULT_PASSWORD),
+      DEFAULT_USERNAME,
+      JSON.stringify(ALL_PERMISSIONS),
+    );
   }
 
   syncMustChangePasswordFlags();
+  ensureAdminPermissions();
 
   const ttl = db
     .prepare(`SELECT value FROM app_settings WHERE key = 'session_ttl_minutes'`)
@@ -217,26 +279,24 @@ type UserRow = {
   totp_enabled: number;
   totp_recovery_hashes: string | null;
   must_change_password: number;
+  display_name: string | null;
+  is_active: number;
+  permissions_json: string | null;
 };
+
+const USER_SELECT = `id, username, password_hash, totp_secret, totp_enabled, totp_recovery_hashes,
+              must_change_password, display_name, is_active, permissions_json`;
 
 function findUserByUsername(username: string): UserRow | null {
   const row = getDb()
-    .prepare(
-      `SELECT id, username, password_hash, totp_secret, totp_enabled, totp_recovery_hashes,
-              must_change_password
-       FROM users WHERE username = ?`,
-    )
+    .prepare(`SELECT ${USER_SELECT} FROM users WHERE username = ?`)
     .get(username) as UserRow | undefined;
   return row ?? null;
 }
 
 function findUserById(id: number): UserRow | null {
   const row = getDb()
-    .prepare(
-      `SELECT id, username, password_hash, totp_secret, totp_enabled, totp_recovery_hashes,
-              must_change_password
-       FROM users WHERE id = ?`,
-    )
+    .prepare(`SELECT ${USER_SELECT} FROM users WHERE id = ?`)
     .get(id) as UserRow | undefined;
   return row ?? null;
 }
@@ -246,8 +306,11 @@ function toAuthUser(row: UserRow): AuthUser {
   return {
     id: row.id,
     username: row.username,
+    displayName: row.display_name?.trim() || row.username,
     totpEnabled: Boolean(row.totp_enabled),
     mustChangePassword: Boolean(row.must_change_password) || stillDefault,
+    isActive: row.is_active !== 0,
+    permissions: parsePermissionsJson(row.permissions_json),
   };
 }
 
@@ -264,7 +327,7 @@ function createSession(user: AuthUser): SessionInfo {
 }
 
 function finishLogin(user: UserRow, password: string): LoginSuccess {
-  unlockVaultWithPassword(password);
+  unlockVaultForUser(user.id, password);
   const session = createSession(toAuthUser(user));
   return {
     ...session,
@@ -280,6 +343,9 @@ export function login(
   const user = findUserByUsername(username.trim());
   if (!user || !verifyPassword(password, user.password_hash)) {
     throw new Error("아이디 또는 비밀번호가 올바르지 않습니다.");
+  }
+  if (user.is_active === 0) {
+    throw new Error("비활성화된 계정입니다. 관리자에게 문의하세요.");
   }
 
   if (user.totp_enabled) {
@@ -318,7 +384,7 @@ export function completeTotpLogin(
     throw new Error("2단계 인증 설정을 확인할 수 없습니다.");
   }
 
-  const dek = deriveVaultKey(challenge.password);
+  const dek = deriveVaultKey(challenge.userId, challenge.password);
   const secretPlain = tryUnsealSecret(user.totp_secret, dek);
   const recoveryOk = consumeRecoveryCode(user, code);
   const otpOk = secretPlain ? verifyTotp(secretPlain, code) : false;
@@ -326,7 +392,7 @@ export function completeTotpLogin(
     throw new Error("인증 코드가 올바르지 않습니다.");
   }
 
-  unlockVaultWithPassword(challenge.password);
+  unlockVaultForUser(challenge.userId, challenge.password);
 
   if (otpOk || recoveryOk) {
     // 시크릿 복호화 실패 상태로 들어온 경우(복구 코드) → 재설정 유도
@@ -481,7 +547,7 @@ export function disableTotp(
     throw new Error("비밀번호가 올바르지 않습니다.");
   }
   if (!isVaultUnlocked()) {
-    unlockVaultWithPassword(password);
+    unlockVaultForUser(userId, password);
   }
   const user = findUserById(userId);
   if (!user?.totp_enabled || !user.totp_secret) {
@@ -544,7 +610,7 @@ export function assertTotpIfEnabled(
 export function logout(token: string | null | undefined): void {
   if (!token) return;
   getDb().prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
-  // 단일 관리자: 세션이 없으면 볼트 잠금
+  // 활성 세션이 없으면 볼트 잠금
   const remaining = getDb()
     .prepare(`SELECT COUNT(*) AS n FROM sessions`)
     .get() as { n: number };
@@ -567,7 +633,8 @@ export function getSession(token: string | null | undefined): SessionInfo | null
   const row = getDb()
     .prepare(
       `SELECT s.token, s.expires_at, u.id AS user_id, u.username, u.totp_enabled,
-              u.password_hash, u.must_change_password, u.totp_secret, u.totp_recovery_hashes
+              u.password_hash, u.must_change_password, u.totp_secret, u.totp_recovery_hashes,
+              u.display_name, u.is_active, u.permissions_json
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ?`,
@@ -583,10 +650,17 @@ export function getSession(token: string | null | undefined): SessionInfo | null
         must_change_password: number;
         totp_secret: string | null;
         totp_recovery_hashes: string | null;
+        display_name: string | null;
+        is_active: number;
+        permissions_json: string | null;
       }
     | undefined;
   if (!row) return null;
   if (row.expires_at < new Date().toISOString()) {
+    logout(token);
+    return null;
+  }
+  if (row.is_active === 0) {
     logout(token);
     return null;
   }
@@ -605,6 +679,9 @@ export function getSession(token: string | null | undefined): SessionInfo | null
       totp_secret: row.totp_secret,
       totp_recovery_hashes: row.totp_recovery_hashes,
       must_change_password: row.must_change_password,
+      display_name: row.display_name,
+      is_active: row.is_active,
+      permissions_json: row.permissions_json,
     }),
     expiresAt: row.expires_at,
     ttlMinutes: getSettings().sessionTtlMinutes,
@@ -647,13 +724,171 @@ export function changePassword(
     throw new Error("현재 비밀번호가 올바르지 않습니다.");
   }
   assertTotpIfEnabled(userId, totpCode);
-  rotateVaultPassword(currentPassword, newPassword);
+  rewrapVaultPassword(userId, currentPassword, newPassword);
   getDb()
     .prepare(
       `UPDATE users SET password_hash = ?, must_change_password = 0,
        updated_at = datetime('now') WHERE id = ?`,
     )
     .run(hashPassword(newPassword), userId);
+}
+
+export interface ManagedUser {
+  id: number;
+  username: string;
+  displayName: string;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  totpEnabled: boolean;
+  permissions: Permission[];
+  createdAt: string;
+}
+
+export function listUsers(): ManagedUser[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, username, display_name, is_active, must_change_password, totp_enabled,
+              permissions_json, created_at FROM users ORDER BY id ASC`,
+    )
+    .all() as Array<{
+    id: number;
+    username: string;
+    display_name: string | null;
+    is_active: number;
+    must_change_password: number;
+    totp_enabled: number;
+    permissions_json: string | null;
+    created_at: string;
+  }>;
+  return rows.map((row) => ({
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name?.trim() || row.username,
+    isActive: row.is_active !== 0,
+    mustChangePassword: Boolean(row.must_change_password),
+    totpEnabled: Boolean(row.totp_enabled),
+    permissions: parsePermissionsJson(row.permissions_json),
+    createdAt: row.created_at,
+  }));
+}
+
+export function createUser(input: {
+  username: string;
+  displayName?: string;
+  password: string;
+  permissions: Permission[];
+}): ManagedUser {
+  if (!isVaultUnlocked()) {
+    throw new Error("데이터 잠금 해제 후 계정을 만들 수 있습니다.");
+  }
+  const username = String(input.username ?? "").trim();
+  if (!/^[a-zA-Z0-9._-]{2,32}$/.test(username)) {
+    throw new Error("아이디는 영문·숫자·._- 2~32자여야 합니다.");
+  }
+  if (!input.password || input.password.length < 4) {
+    throw new Error("초기 비밀번호는 4자 이상이어야 합니다.");
+  }
+  if (input.password === DEFAULT_PASSWORD) {
+    throw new Error("기본 비밀번호(admin)는 사용할 수 없습니다.");
+  }
+  const permissions = parsePermissionsJson(JSON.stringify(input.permissions ?? []));
+  const displayName = String(input.displayName ?? username).trim() || username;
+  try {
+    const result = getDb()
+      .prepare(
+        `INSERT INTO users (username, password_hash, must_change_password, display_name, is_active, permissions_json)
+         VALUES (?, ?, 1, ?, 1, ?)`,
+      )
+      .run(
+        username,
+        hashPassword(input.password),
+        displayName,
+        JSON.stringify(permissions),
+      );
+    const id = Number(result.lastInsertRowid);
+    wrapActiveDekForUser(id, input.password);
+    const created = listUsers().find((u) => u.id === id);
+    if (!created) throw new Error("계정 생성에 실패했습니다.");
+    return created;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/UNIQUE/i.test(msg)) {
+      throw new Error("이미 존재하는 아이디입니다.");
+    }
+    throw err;
+  }
+}
+
+export function updateUser(
+  userId: number,
+  input: {
+    displayName?: string;
+    isActive?: boolean;
+    permissions?: Permission[];
+  },
+): ManagedUser {
+  const user = findUserById(userId);
+  if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+
+  const displayName =
+    input.displayName !== undefined
+      ? String(input.displayName).trim() || user.username
+      : user.display_name?.trim() || user.username;
+  const isActive =
+    input.isActive !== undefined ? (input.isActive ? 1 : 0) : user.is_active;
+  const permissions =
+    input.permissions !== undefined
+      ? parsePermissionsJson(JSON.stringify(input.permissions))
+      : parsePermissionsJson(user.permissions_json);
+
+  if (user.username === DEFAULT_USERNAME && isActive === 0) {
+    throw new Error("기본 관리자 계정은 비활성화할 수 없습니다.");
+  }
+
+  getDb()
+    .prepare(
+      `UPDATE users SET display_name = ?, is_active = ?, permissions_json = ?,
+       updated_at = datetime('now') WHERE id = ?`,
+    )
+    .run(displayName, isActive, JSON.stringify(permissions), userId);
+
+  if (isActive === 0) {
+    getDb().prepare(`DELETE FROM sessions WHERE user_id = ?`).run(userId);
+  }
+
+  const updated = listUsers().find((u) => u.id === userId);
+  if (!updated) throw new Error("사용자를 찾을 수 없습니다.");
+  return updated;
+}
+
+export function resetUserPassword(
+  actorId: number,
+  targetUserId: number,
+  newPassword: string,
+): void {
+  if (!isVaultUnlocked()) {
+    throw new Error("데이터 잠금 해제 후 비밀번호를 재설정할 수 있습니다.");
+  }
+  if (!newPassword || newPassword.length < 4) {
+    throw new Error("새 비밀번호는 4자 이상이어야 합니다.");
+  }
+  if (newPassword === DEFAULT_PASSWORD) {
+    throw new Error("기본 비밀번호(admin)는 사용할 수 없습니다.");
+  }
+  const target = findUserById(targetUserId);
+  if (!target) throw new Error("사용자를 찾을 수 없습니다.");
+
+  wrapActiveDekForUser(targetUserId, newPassword);
+  getDb()
+    .prepare(
+      `UPDATE users SET password_hash = ?, must_change_password = 1,
+       updated_at = datetime('now') WHERE id = ?`,
+    )
+    .run(hashPassword(newPassword), targetUserId);
+  getDb()
+    .prepare(`DELETE FROM sessions WHERE user_id = ?`)
+    .run(targetUserId);
+  void actorId;
 }
 
 export function verifyUserPassword(userId: number, password: string): boolean {

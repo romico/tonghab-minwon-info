@@ -10,6 +10,7 @@ import { LegalDocPage } from "@/pages/LegalDocPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SummaryPage } from "@/pages/SummaryPage";
+import { UsersPage } from "@/pages/UsersPage";
 import { AuthProvider, useAuth } from "@/store/AuthStore";
 import { ComplaintProvider } from "@/store/ComplaintStore";
 
@@ -55,6 +56,7 @@ function ProtectedApp() {
           <Route path="summary" element={<SummaryPage />} />
           <Route path="daily" element={<DailyPage />} />
           <Route path="audit" element={<AuditPage />} />
+          <Route path="users" element={<UsersPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
