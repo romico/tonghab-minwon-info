@@ -649,7 +649,8 @@ async function buildPlatform(plat, shared) {
       target: "node22",
       outfile: join(cacheDir, "server.cjs"),
       packages: "bundle",
-      external: ["node:sqlite"],
+      // kordoc OCR은 선택적 dynamic import — 미설치 시 런타임에 건너뛴다
+      external: ["node:sqlite", "onnxruntime-node"],
       logLevel: "info",
     });
     shared.serverBuilt = true;
